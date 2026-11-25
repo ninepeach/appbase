@@ -1,0 +1,2 @@
+# Core contract (draft)
+App owns application resources. UIManager owns explicit UI definitions and navigation instances. CommandService owns typed command dispatch, bounded parallel and serial queues, cancellation and separate queue/execution timeouts. Streams have a bounded concurrent admission count and rendezvous delivery. EventBus is transient broadcast; StateStore exposes latest state. Plugins install explicitly before start. Capability is an architectural command allowlist, not a security sandbox. No dynamic loading or extension libraries.
