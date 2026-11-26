@@ -55,7 +55,7 @@ UIManager owns explicit UI definitions and navigation instances. Route identity 
 - Restore serializable navigation, form and scroll state on supported OS recreation. Never serialize callbacks, live resources or coroutines. Sensitive drafts require explicit policy.
 - Provide design tokens, theme, dark mode, reusable components, loading/empty/error/offline/retry states, adaptive layouts, safe areas, keyboard/focus, gestures, accessibility, localization/RTL, transitions and reduced motion.
 
-Suggested public operations: openPage, openModal, enqueueModal, showOverlay, toast, close(instanceId), back, switchTab. Modal results and cancellation must be explicit. UI-local state remains native; no mandatory global store for widgets.
+Suggested public operations: openPage, openModal, enqueueModal, showOverlay, toast, close(instanceId), back, selectRoot. Modal results and cancellation must be explicit. UI-local state remains native; no mandatory global store for widgets.
 
 ## 6. Service Runtime
 
