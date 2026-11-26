@@ -6,11 +6,14 @@ object Add : Command<Int>
 object Slow : Command<Int>
 object Stream : ChannelCommand<Int>
 object Ping : AppEvent
-class MemorySavedStatePlatform : SavedStatePlatform {
+class MemorySavedStatePlatform(
+    private val restored: Map<String, ByteArray>? = null,
+    var fitsBudget: Boolean = true,
+) : SavedStatePlatform {
     var provider: (() -> Map<String, ByteArray>)? = null
     override fun checkThread() = Unit
-    override fun fits(values: Map<String, ByteArray>) = true
-    override fun consume(key: String): Map<String, ByteArray>? = null
+    override fun fits(values: Map<String, ByteArray>) = fitsBudget
+    override fun consume(key: String): Map<String, ByteArray>? = restored
     override fun register(key: String, provider: () -> Map<String, ByteArray>): AutoCloseable {
         check(this.provider == null)
         this.provider = provider
@@ -26,7 +29,8 @@ fun main() = runBlocking {
     check(childLifecycle.foregroundScope() == null)
     val platform = MemorySavedStatePlatform()
     SavedState(platform, maxEntryBytes = 256, maxTotalBytes = 1024).use { saved ->
-        val slot = saved.slot("draft", String.serializer())
+        val slot = checkNotNull(saved.slot("draft", String.serializer()))
+        check(saved.slot("draft", String.serializer()) == null)
         check(slot.set("ok"))
         check(!slot.set("x".repeat(1024)))
         check(slot.get() == "ok")
@@ -35,6 +39,38 @@ fun main() = runBlocking {
         check(slot.get() == null)
     }
     check(platform.provider == null)
+    SavedState(platform, maxEntries = 4).use { saved ->
+        repeat(100) { i ->
+            val slot = checkNotNull(saved.slot("draft.$i", Int.serializer()))
+            check(slot.set(i))
+            slot.close()
+        }
+        check(checkNotNull(platform.provider).invoke().isEmpty())
+        val reclaimed = checkNotNull(saved.slot("draft.1", Int.serializer()))
+        reclaimed.close()
+    }
+    val restoredPlatform = MemorySavedStatePlatform(mapOf(
+        "kept" to "\"a\"".encodeToByteArray(),
+        "orphan" to "1".encodeToByteArray(),
+        "corrupt" to "{".encodeToByteArray(),
+    ))
+    SavedState(restoredPlatform).use { saved ->
+        val kept = checkNotNull(saved.slot("kept", String.serializer()))
+        check(kept.get() == "a")
+        val corrupt = checkNotNull(saved.slot("corrupt", Int.serializer()))
+        check(corrupt.get() == null)
+        val first = checkNotNull(restoredPlatform.provider).invoke()
+        check(first.keys == setOf("kept", "orphan"))
+        val second = checkNotNull(restoredPlatform.provider).invoke()
+        check(second.keys == setOf("kept"))
+    }
+    val navPlatform = MemorySavedStatePlatform(fitsBudget = false)
+    val navManager = UIManager(listOf(UIRoute("home", UILayer.PAGE)), mapOf("home" to "home"))
+    var navWarning: String? = null
+    navManager.bindSavedState(navPlatform) { navWarning = it }.use {
+        check(checkNotNull(navPlatform.provider).invoke().isEmpty() && navWarning == "navigation.save.rejected")
+    }
+    navManager.close()
     val key = StateKey<Int>("count")
     val host = App(listOf(object : Plugin {
         override fun install(context: AppContext, commands: CommandService) {
@@ -114,7 +150,7 @@ fun main() = runBlocking {
         check(host.platform.dispatch(wake) == WakeResult.DUPLICATE && calls == 1)
         check(host.platform.dispatch(wake.copy(id = "2", expiresAtMs = 0)) == WakeResult.EXPIRED)
         check(host.platform.dispatch(wake.copy(id = "3", route = "unknown")) == WakeResult.UNKNOWN_ROUTE)
-        println("PASS: typed saved state slots and cleanup")
+        println("PASS: typed saved state slots, release, orphan expiry, corrupt drop, non-throwing navigation save")
         println("PASS: bounded logs, crash report redaction, wake routing and deduplication")
         println("PASS: lifecycle transitions, scope cancellation, bounded stack")
         println("PASS: navigation, modal priority, root protection")

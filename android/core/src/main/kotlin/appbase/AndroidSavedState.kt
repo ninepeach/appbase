@@ -36,9 +36,14 @@ class AndroidSavedState(
     override fun consume(key: String): Map<String, ByteArray>? {
         checkThread()
         val restored = registry.consumeRestoredStateForKey(key) ?: return null
-        return restored.keySet().associateWith { name ->
-            requireNotNull(restored.getByteArray(name))
+        // Skip entries that are not byte arrays (for example an older saved format) instead of
+        // failing the whole restore.
+        val result = linkedMapOf<String, ByteArray>()
+        for (name in restored.keySet()) {
+            val bytes = runCatching { restored.getByteArray(name) }.getOrNull() ?: continue
+            result[name] = bytes
         }
+        return result
     }
 
     override fun register(key: String, provider: () -> Map<String, ByteArray>): AutoCloseable {

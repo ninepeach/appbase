@@ -114,7 +114,8 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private fun publish() { mutableState.value = snapshot() }
 
     /** Transitional navigation snapshot; replaced by typed NavSnapshot during Nav3 migration. */
-    fun bindSavedState(platform: SavedStatePlatform, key: String = "appbase.navigation"): AutoCloseable {
+    fun bindSavedState(platform: SavedStatePlatform, key: String = "appbase.navigation",
+        warning: (String) -> Unit = {}): AutoCloseable {
         platform.checkThread()
         val serializer = kotlinx.serialization.builtins.MapSerializer(
             String.serializer(),
@@ -123,15 +124,20 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         val json = kotlinx.serialization.json.Json
         val restored = platform.consume(key)?.get("navigation")
         if (restored != null) {
-            runCatching {
+            val ok = runCatching {
                 restoreNavigation(json.decodeFromString(serializer, restored.decodeToString()))
-            }
+            }.getOrDefault(false)
+            if (!ok) runCatching { warning("navigation.restore.rejected") }
         }
+        // Never throw from the native save callback: an oversized or failing snapshot is dropped
+        // and the app restarts at its roots instead of crashing when backgrounded.
         return platform.register(key) {
-            val bytes = json.encodeToString(serializer, saveNavigation()).encodeToByteArray()
-            val snapshot = mapOf("navigation" to bytes)
-            check(platform.fits(snapshot)) { "Navigation snapshot exceeds native budget" }
-            snapshot
+            runCatching {
+                val bytes = json.encodeToString(serializer, saveNavigation()).encodeToByteArray()
+                mapOf("navigation" to bytes).takeIf { platform.fits(it) }
+            }.getOrNull() ?: emptyMap<String, ByteArray>().also {
+                runCatching { warning("navigation.save.rejected") }
+            }
         }
     }
 

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import appbase.AndroidSavedState
+import kotlinx.serialization.builtins.serializer
 import appbase.App
 import appbase.AppContext
 import appbase.AppEvent
@@ -82,13 +83,16 @@ private data class TestResult(val name: String, val passed: Boolean, val detail:
 class MainActivity : ComponentActivity() {
     private val app = App(listOf(CoreTestPlugin()))
     private lateinit var savedState: SavedState
+    private lateinit var recreationCount: SavedState.Slot<Int>
     private lateinit var uiManager: UIManager
     private lateinit var navigationRegistration: AutoCloseable
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         app.start()
-        savedState = SavedState(AndroidSavedState(savedStateRegistry))
+        val platform = AndroidSavedState(savedStateRegistry)
+        savedState = SavedState(platform)
+        recreationCount = checkNotNull(savedState.slot("recreation.count", Int.serializer()))
         uiManager = UIManager(
             routes = listOf(
                 UIRoute("home", UILayer.PAGE),
@@ -98,7 +102,7 @@ class MainActivity : ComponentActivity() {
             ),
             roots = mapOf("main" to "home"),
         )
-        navigationRegistration = uiManager.bindSavedState(savedState)
+        navigationRegistration = uiManager.bindSavedState(platform)
         UIHost(
             manager = uiManager,
             lifecycle = app.lifecycle,
@@ -133,7 +137,7 @@ class MainActivity : ComponentActivity() {
     private fun Home(instance: UIInstance) {
         var running by remember { mutableStateOf(false) }
         var results by remember { mutableStateOf(emptyList<TestResult>()) }
-        var restoredCount by remember { mutableStateOf((savedState.get("recreation.count") as? Int) ?: 0) }
+        var restoredCount by remember { mutableStateOf(recreationCount.get() ?: 0) }
         LaunchedEffect(running) {
             if (!running) return@LaunchedEffect
             results = runCoreTests()
@@ -161,7 +165,7 @@ class MainActivity : ComponentActivity() {
             Text("SavedState recreation count: $restoredCount")
             OutlinedButton(onClick = {
                 restoredCount += 1
-                check(savedState.set("recreation.count", restoredCount))
+                check(recreationCount.set(restoredCount))
                 recreate()
             }) { Text("Save and recreate Activity") }
             Text("Current instance: ${instance.id.take(8)}")
@@ -253,9 +257,15 @@ class MainActivity : ComponentActivity() {
                 "bounded log and command trace"
             },
             "SavedState" to {
-                check(savedState.set("test.value", 42))
-                check(savedState.get("test.value") == 42)
-                "Android adapter set and get"
+                val slot = checkNotNull(savedState.slot("test.value", Int.serializer()))
+                try {
+                    check(slot.set(42) && slot.get() == 42)
+                    check(savedState.slot("test.value", Int.serializer()) == null)
+                } finally {
+                    slot.close()
+                }
+                check(savedState.slot("test.value", Int.serializer())?.also { it.close() } != null)
+                "typed slot set/get, exclusive claim and release"
             },
             "UIManager" to {
                 val manager = UIManager(
