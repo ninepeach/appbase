@@ -44,7 +44,7 @@ Default transport is in-process typed calls. Optional native IPC, FFI or web bri
 
 ## 5. UI Runtime
 
-UIManager owns explicit UI definitions and navigation instances. Route identity is distinct from unique instance identity. Each instance has a route, arguments, owner, parent, layer, scope, state and restoration policy. Instance IDs must remain unambiguous across restoration. UIRegistry registers definitions; UIHost renders using native UI; UIManager controls logical navigation and presentation, not ordinary widgets.
+UIManager owns explicit UI definitions and navigation instances. Route identity is distinct from unique instance identity. Each instance has a route, arguments, owner, parent, layer, scope, state and restoration policy. Instance IDs must remain unambiguous across restoration. Route definitions are registered explicitly; UIHost renders using native UI; UIManager controls logical navigation and presentation, not ordinary widgets.
 
 - Independent page stacks per tab; push, pop, replace, switch tab, deep link, exact close and back.
 - Layers: PAGE, OVERLAY, MODAL, TOAST, SYSTEM. Visual order and input ownership are separate. Nonblocking notices never steal focus.
@@ -146,3 +146,7 @@ Acceptance:
 - At least two distinct product scenarios before declaring the architecture generally validated.
 
 Prioritize UI completion, runtime hardening, foundation libraries, core platform capabilities, advanced platform capabilities and production validation. Basic diagnostics and security are required throughout. Each platform releases independently; optional modules have their own readiness criteria. This specification does not certify current implementation or test status.
+
+## Core and optional UI library placement
+
+Core is the native application runtime and includes UIManager, UIHost, SavedState and its native adapter, alongside communication, lifecycle and diagnostics. UIManager and UIHost remain separate classes documented together in [UIManager](ui-manager.md). UIHost depends on UIManager, never the reverse. Core may depend on native SDK and UI frameworks but must not depend on the optional UI library or impose product visual styling. DesignSystem and reusable visual components belong to the optional UI library, which may depend on Core. Foundation libraries remain independently usable. Android Core is targeted to become an Android library with Compose support; this placement decision does not assert that migration or tests have been completed.
