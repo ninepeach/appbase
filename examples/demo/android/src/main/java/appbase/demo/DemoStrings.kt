@@ -84,6 +84,12 @@ internal fun demoLabel(key:String,language:String):String {
         "No VPN, networking or persistent storage." to listOf("不含 VPN、網絡或持久化儲存。","不含 VPN、网络或持久化存储。","VPN、通信、永続ストレージはありません。"),
         "All traffic values are simulated." to listOf("所有流量數值均為模擬。","所有流量数值均为模拟。","すべての通信量は模擬値です。"),
         "No active connections" to listOf("沒有活動連線","没有活动连接","有効な接続はありません"),
-        "No subscriptions" to listOf("沒有訂閱","没有订阅","購読なし")
+        "No subscriptions" to listOf("沒有訂閱","没有订阅","購読なし"),
+        "Delete selected" to listOf("刪除已選","删除所选","選択項目を削除"),
+        "Move to Local" to listOf("移至本機","移至本地","ローカルへ移動"),
+        "Move to Work" to listOf("移至工作","移至工作","仕事へ移動"),
+        "Session traffic · mock" to listOf("工作階段流量（模擬）","会话流量（模拟）","セッション通信量（模擬）"),
+        "Day" to listOf("第","第","日"),
+        "Dependency license inventory is not yet generated." to listOf("尚未產生依賴授權清單。","尚未生成依赖许可清单。","依存関係のライセンス一覧は未生成です。")
     )[key]?.get(index) ?: key
 }

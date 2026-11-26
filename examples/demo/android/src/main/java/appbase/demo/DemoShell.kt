@@ -129,14 +129,14 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         }
                                         if(batch) {
                                             Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){controller.deleteNodes(ids);connected=false;marked.clear();batch=false}}){Text("Delete selected (" + marked.size + ")")}
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Local");marked.clear()}){Text("Move to Local")}
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Work");marked.clear()}){Text("Move to Work")}
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){controller.deleteNodes(ids);connected=false;marked.clear();batch=false}}){Text(demoLabel("Delete selected",language) + " (" + marked.size + ")")}
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Local");marked.clear()}){Text(demoLabel("Move to Local",language))}
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Work");marked.clear()}){Text(demoLabel("Move to Work",language))}
                                             }
                                         }
                                         Group {
                                             val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
-                                            if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
+                                            if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,demoLabel("No matching nodes",language)) {}
                                             visible.forEach { n -> key(n.id) {
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                                     if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(model.selected==n.id,{model.selected=n.id;connected=false})
@@ -175,7 +175,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Connections",language)){open("Connections")};Item(demoLabel("Logs",language)){open("Logs")} }
                                         Text(demoLabel("All traffic values are simulated.",language),style=MaterialTheme.typography.bodySmall)
                                     }
-                                    "Traffic" -> { Text("Session traffic · mock"); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text("Day ${i+1}",Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
+                                    "Traffic" -> { Text(demoLabel("Session traffic · mock",language)); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text(demoLabel("Day",language)+" "+(i+1),Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
                                     "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,demoLabel("No active connections",language)) {} }
                                     "Logs" -> {
                                         var filter by rememberSaveable { mutableStateOf("") }
@@ -195,7 +195,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     }
                                     "Diagnostics" -> Group { Item(demoLabel("UI stack",language),stack.size.toString()){notice=stack.joinToString(" → "){it.id}};Item(demoLabel("Nodes",language),nodes.size.toString()){notice="In-memory UI state"};Item(demoLabel("Runtime logs",language)){open("Logs")} }
                                     "About" -> { Text("Appbase Demo",style=MaterialTheme.typography.headlineMedium);Text(demoLabel("No VPN, networking or persistent storage.",language));Group{Item(demoLabel("Open source licenses",language)){open("Licenses")}} }
-                                    "Licenses" -> Text("Dependency license inventory is not yet generated.")
+                                    "Licenses" -> Text(demoLabel("Dependency license inventory is not yet generated.",language))
                                     "Rules" -> Group { listOf("DOMAIN,example.org,PROXY","GEOIP,LOCAL,DIRECT","FINAL,PROXY").forEach{Text(it,Modifier.padding(vertical=12.dp))} }
                                     "Subscriptions" -> SubscriptionScreen(model,language,{notice=it},::confirm)
                                     "Import" -> {
