@@ -105,36 +105,45 @@ class App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int =
     private val installed = mutableListOf<Plugin>()
     private enum class Status { NEW, STARTING, RUNNING, CLOSING, CLOSED }
     private var status = Status.NEW
-    // App startup and shutdown are owner-thread operations; reentrant close during
-    // installation is rejected so partial installation cannot escape rollback.
-    @Synchronized fun start() {
-        check(status == Status.NEW)
-        status = Status.STARTING
+    // Only state transitions hold the monitor; plugin callbacks never do.
+    fun start() {
+        synchronized(this) {
+            check(status == Status.NEW)
+            status = Status.STARTING
+        }
         try {
             plugins.forEach { installed.add(it); it.install(context, commands) }
             commands.start()
-            status = Status.RUNNING
+            synchronized(this) { status = Status.RUNNING }
         } catch (e: Throwable) {
+            synchronized(this) { status = Status.CLOSING }
             shutdown()
             throw e
         }
     }
-    @Synchronized override fun close() {
-        check(status != Status.STARTING) { "Cannot close during plugin installation" }
+    override fun close() {
+        synchronized(this) {
+            check(status != Status.STARTING) { "Cannot close during plugin installation" }
+            if (status == Status.CLOSING || status == Status.CLOSED) return
+            status = Status.CLOSING
+        }
         shutdown()
     }
     private fun shutdown() {
-        if (status == Status.CLOSING || status == Status.CLOSED) return
-        status = Status.CLOSING
         try {
-            platform.close()
-            lifecycle.close()
-            commands.close()
-            scope.cancel()
+            val cleanup = listOf<() -> Unit>(
+                { platform.close() }, { lifecycle.close() },
+                { commands.close() }, { scope.cancel() }
+            )
+            cleanup.forEach { action ->
+                runCatching { action() }.onFailure { log.write(LogLevel.ERROR, "core.close.failed") }
+            }
+            installed.asReversed().forEach {
+                runCatching { it.close() }.onFailure { log.write(LogLevel.ERROR, "plugin.close.failed") }
+            }
         } finally {
-            installed.asReversed().forEach { runCatching { it.close() }.onFailure { log.write(LogLevel.ERROR, "plugin.close.failed") } }
             installed.clear()
-            status = Status.CLOSED
+            synchronized(this) { status = Status.CLOSED }
         }
     }
 }
