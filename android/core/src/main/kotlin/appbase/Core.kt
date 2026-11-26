@@ -12,7 +12,8 @@ interface Command<R>
 interface ChannelCommand<T>
 interface AppEvent
 class StateKey<T>(val name: String)
-class Capability(private val allowed: Set<String>) {
+class Capability(allowed: Set<String>) {
+    private val allowed = allowed.toSet()
     fun check(id: String) { if (id !in allowed) throw SecurityException("Denied: $id") }
 }
 data class Execution(val timeoutMs: Long = 30_000, val serial: Boolean = false, val queueTimeoutMs: Long = 30_000) { init { require(timeoutMs > 0 && queueTimeoutMs > 0) } }
@@ -78,7 +79,8 @@ class CommandClient internal constructor(private val service: CommandService, pr
     fun <T> stream(command: ChannelCommand<T>): Flow<T> = service.stream(command, capability)
 }
 interface Plugin { fun install(context: AppContext, commands: CommandService); fun close() {} }
-class App(private val plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int = 32) : AutoCloseable {
+class App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int = 32) : AutoCloseable {
+    private val plugins = plugins.toList()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val context = AppContext(EventBus(), StateStore(), Inspector(), scope)
     val log = Logger()
