@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
@@ -131,16 +133,30 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         Group {
                                             val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
                                             if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
-                                            visible.forEach { n ->
+                                            visible.forEach { n -> key(n.id) {
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                                     if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(selected==n.id,{selected=n.id;connected=false})
                                                     Column(Modifier.weight(1f).clickable{selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
                                                     if(batch) {
+                                                        Text("☰", Modifier.padding(12.dp).pointerInput(n.id) {
+                                                            var distance=0f
+                                                            detectDragGesturesAfterLongPress(onDragStart={distance=0f},onDragEnd={distance=0f},onDragCancel={distance=0f}) { change, delta ->
+                                                                change.consume()
+                                                                distance+=delta.y
+                                                                val threshold=48.dp.toPx()
+                                                                if(kotlin.math.abs(distance)>=threshold){
+                                                                    val i=nodes.indexOfFirst{it.id==n.id}
+                                                                    val target=i+if(distance>0)1 else -1
+                                                                    if(i>=0&&target in nodes.indices){val item=nodes.removeAt(i);nodes.add(target,item)}
+                                                                    distance=0f
+                                                                }
+                                                            }
+                                                        })
                                                         TextButton(onClick={val i=nodes.indexOf(n);if(i>0){nodes.removeAt(i);nodes.add(i-1,n)}}){Text("↑")}
                                                         TextButton(onClick={val i=nodes.indexOf(n);if(i>=0&&i<nodes.lastIndex){nodes.removeAt(i);nodes.add(i+1,n)}}){Text("↓")}
                                                     } else TextButton(onClick={editing=n;open("Node editor")}){Text("Edit")}
                                                 }; HorizontalDivider()
-                                            }
+                                            } }
                                         }
                                         Group { Item(demoLabel("Subscriptions",language),"Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
                                     }
