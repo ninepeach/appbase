@@ -3,6 +3,10 @@ package appbase
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,7 +36,7 @@ class UIHost(
         val holder = rememberSaveableStateHolder()
         val snackbar = remember { SnackbarHostState() }
         var previous by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-        val live = state.instances.map { it.id }.toSet()
+        val live = state.instances.filter { it.route.layer != UILayer.PAGE }.map { it.id }.toSet()
         LaunchedEffect(live) {
             (previous - live).forEach { holder.removeState(it) }
             previous = ArrayList(live)
@@ -49,14 +53,37 @@ class UIHost(
                 }
             }
         }
-        BackHandler(enabled = state.foreground && manager.canGoBack()) { manager.back() }
         val visible = state.instances.filter { it.id in state.visible }
-        val page = visible.lastOrNull { it.route.layer == UILayer.PAGE }
         val blocker = visible.filter { it.route.blocking && it.route.layer != UILayer.PAGE }
             .maxWithOrNull(compareBy<UIInstance> { it.route.layer.ordinal }.thenBy { visible.indexOf(it) })
         Box(Modifier.fillMaxSize()) {
-            if (page != null) {
-                holder.SaveableStateProvider(page.id) { renderers.getValue(page.route.name)(page) }
+            val tabs = state.instances.filter { it.route.layer == UILayer.PAGE }.groupBy { it.tab }
+            val decorators = tabs.mapValues { (tab, _) ->
+                key(tab) {
+                    listOf(
+                        rememberSaveableStateHolderNavEntryDecorator<String>(),
+                        rememberViewModelStoreNavEntryDecorator<String>()
+                    )
+                }
+            }
+            val pages = tabs[state.tab].orEmpty()
+            if (pages.isNotEmpty()) {
+                key(state.tab) {
+                    NavDisplay(
+                        backStack = pages.map { it.id },
+                        entryDecorators = decorators.getValue(state.tab),
+                        onBack = { manager.back() },
+                        entryProvider = { id ->
+                            val page = pages.first { it.id == id }
+                            NavEntry(id, contentKey = id) {
+                                renderers.getValue(page.route.name)(page)
+                            }
+                        }
+                    )
+                }
+            }
+            BackHandler(enabled = state.foreground && blocker != null) {
+                manager.back()
             }
             visible.filter { it.route.layer != UILayer.PAGE && !it.route.blocking && it.route.layer != UILayer.TOAST }.forEach { item ->
                 key(item.id) { holder.SaveableStateProvider(item.id) { renderers.getValue(item.route.name)(item) } }
@@ -66,7 +93,7 @@ class UIHost(
         if (blocker != null) {
             key(blocker.id) {
                 Dialog(
-                    onDismissRequest = { if (blocker.route.dismissible) manager.close(blocker.id) },
+                    onDismissRequest = { if (blocker.route.dismissible) manager.back() },
                     properties = DialogProperties(
                         dismissOnBackPress = blocker.route.dismissible,
                         dismissOnClickOutside = blocker.route.dismissible,
