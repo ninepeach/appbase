@@ -13,18 +13,26 @@ class AppLifecycle(parent: CoroutineScope, private val events: EventBus? = null)
     private val mutable = MutableStateFlow(AppPhase.INACTIVE)
     val phase = mutable.asStateFlow()
     private var active: CoroutineScope? = null
-    @Synchronized fun transition(next: AppPhase) {
+    fun transition(next: AppPhase) {
+        val previous = synchronized(this) {
         check(mutable.value != AppPhase.CLOSED)
         require(next != AppPhase.CLOSED)
         if (next == mutable.value) return
-        active?.cancel(); active = null
+        val old = active; active = null
         if (next == AppPhase.FOREGROUND) active = CoroutineScope(context + SupervisorJob(job))
         mutable.value = next
         events?.tryEmit(LifecycleChanged(next))
+        old
+        }
+        previous?.cancel()
     }
     @Synchronized fun foregroundScope(): CoroutineScope? = active
-    @Synchronized override fun close() {
-        if (mutable.value == AppPhase.CLOSED) return
-        job.cancel(); active = null; mutable.value = AppPhase.CLOSED
+    override fun close() {
+        synchronized(this) {
+            if (mutable.value == AppPhase.CLOSED) return
+            active = null; mutable.value = AppPhase.CLOSED
+            events?.tryEmit(LifecycleChanged(AppPhase.CLOSED))
+        }
+        job.cancel()
     }
 }
