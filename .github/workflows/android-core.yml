@@ -23,6 +23,6 @@ jobs:
           gradle-version: '8.11.1'
       - name: Android build
         working-directory: android
-        run: gradle --no-daemon :core:assembleDebug :ui:assembleDebug
+        run: gradle --no-daemon -PwithDemo=true :core:assembleDebug :ui:assembleDebug :appbaseTest:assembleDebug
       - name: Kotlin smoke
         run: bash android/tests/run.sh
