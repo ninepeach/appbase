@@ -193,14 +193,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     "About" -> { Text("Appbase Demo",style=MaterialTheme.typography.headlineMedium);Text("Native Compose UI prototype. No VPN, networking or persistent storage.");Group{Item("Open source licenses"){open("Licenses")}} }
                                     "Licenses" -> Text("Dependency license inventory is not yet generated.")
                                     "Rules" -> Group { listOf("DOMAIN,example.org,PROXY","GEOIP,LOCAL,DIRECT","FINAL,PROXY").forEach{Text(it,Modifier.padding(vertical=12.dp))} }
-                                    "Subscriptions" -> {
-                                        var url by rememberSaveable { mutableStateOf("") }
-                                        if(subscriptions.isEmpty()) UIContent(ContentStatus.EMPTY,"No subscriptions") {}
-                                        subscriptions.forEach { address -> Group { Item(address,"Remove"){confirm("Remove subscription?"){subscriptions.remove(address)}} } }
-                                        OutlinedTextField(url,{url=it},label={Text(demoLabel("Subscription URL",language))},modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=url.startsWith("https://")&&url !in subscriptions,onClick={subscriptions.add(url);url=""}){Text(demoLabel("Add",language))}
-                                        Button(enabled=subscriptions.isNotEmpty(),onClick={notice="Simulated refresh complete"}){Text(demoLabel("Refresh all",language))}
-                                    }
+                                    "Subscriptions" -> SubscriptionScreen(model,language,{notice=it},::confirm)
                                     "Import" -> {
                                         var input by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(input,{input=it},label={Text(if(page=="Import")"Paste configuration or URI" else "Subscription URL")},modifier=Modifier.fillMaxWidth())
