@@ -154,3 +154,29 @@ Core is the native application runtime and includes UIManager, UIHost, SavedStat
 ## Android Core migration status
 
 UIHost and AndroidSavedState source files now reside in android/core/src/main/kotlin/appbase with package appbase. Core build configuration is Android Library with Compose; all Kotlin sources share src/main/kotlin/appbase; standalone smoke tests explicitly exclude UIHost.kt and AndroidSavedState.kt. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. The test application is a separate workstream; its acceptance is not asserted here. Build and native verification are pending; source migration does not establish successful compilation.
+
+## Android implementation baseline — phase 2
+
+The sections above define the target architecture. The following is the source-level implementation baseline, not a release certification.
+
+### App and Command API
+
+```kotlin
+App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int = 32)
+App.start()
+App.close()
+Plugin.install(context: AppContext, commands: CommandService)
+Plugin.close()
+CommandService.register(type, id, policy: Execution = Execution(), handler)
+CommandService.client(capability: Capability): CommandClient
+CommandClient.execute(command: Command<R>): R // suspend
+Execution(timeoutMs: Long = 30000, serial: Boolean = false, queueTimeoutMs: Long = 30000)
+```
+
+App exposes context, log, event, state, inspector, lifecycle, platform, commands and cmd. Plugin list is copied; installation follows supplied order and shutdown reverses it, including a partially installed plugin on startup failure. NEW -> STARTING -> RUNNING -> CLOSING -> CLOSED; startup failure transitions through CLOSING. Plugin callbacks run outside the App monitor. Close during STARTING throws; concurrent close during CLOSING returns without waiting. Shutdown attempts router, lifecycle, command service, application scope and plugin cleanup, logging safe failure codes. It does not await cooperative worker termination before plugin cleanup. Dependency graph validation, service/task runtime and broad SDK catalog remain target features.
+
+Command handlers register before start; IDs are unique across command and stream registries, 1–128 characters, letters/digits or ._-. Separate bounded parallel and serial queues each use capacity (default 32), with workers parallel consumers (default 4) and one serial consumer. Capability is a copied allowlist. Queue admission is nonblocking; failure throws QueueFull. Queue and execution timeouts are separate. Undelivered work cancels its result; caller cancellation propagates to the handler job. Ordinary handler failures complete the result exceptionally; an Error is rethrown and can terminate a worker. Closing cancels service scope and both queues; shutdown races and worker termination need verification. See channel.md for stream semantics.
+
+### Acceptance status
+
+Source hardening and added JVM regression cases are committed. CI configuration is .github/workflows/android-core.yml; android/tests/run.sh excludes native UIHost and AndroidSavedState. No successful CI, native compilation, emulator or device run is certified by this document. iOS implementation is not certified. Release freeze is conditional on actual verification. See module specifications for remaining risks.
