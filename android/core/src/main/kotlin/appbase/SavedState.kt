@@ -3,11 +3,11 @@ package appbase
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 
-interface SavedStatePlatform {
-    fun checkThread()
-    fun consume(key: String): Map<String, ByteArray>?
-    fun register(key: String, provider: () -> Map<String, ByteArray>): AutoCloseable
-    fun fits(values: Map<String, ByteArray>): Boolean
+public interface SavedStatePlatform {
+    public fun checkThread()
+    public fun consume(key: String): Map<String, ByteArray>?
+    public fun register(key: String, provider: () -> Map<String, ByteArray>): AutoCloseable
+    public fun fits(values: Map<String, ByteArray>): Boolean
 }
 
 /**
@@ -18,7 +18,7 @@ interface SavedStatePlatform {
  * Restored values whose key is never claimed again are kept for one save only, so renamed or
  * removed slots cannot hold budget forever.
  */
-class SavedState(
+public class SavedState(
     private val platform: SavedStatePlatform,
     key: String = "appbase.savedState",
     private val maxEntryBytes: Int = 32768,
@@ -94,7 +94,7 @@ class SavedState(
      * Claims [key]. Returns null if the key is already owned by a live slot or the slot limit is
      * reached; an invalid key is a programming error and throws.
      */
-    fun <T : Any> slot(key: String, serializer: KSerializer<T>): Slot<T>? {
+    public fun <T : Any> slot(key: String, serializer: KSerializer<T>): Slot<T>? {
         checkOpen()
         require(validKey(key)) { "Invalid saved state key" }
         if (key in claimed || claimed.size >= maxEntries) {
@@ -106,7 +106,7 @@ class SavedState(
         return Slot(key, serializer)
     }
 
-    inner class Slot<T : Any> internal constructor(
+    public inner class Slot<T : Any> internal constructor(
         private val key: String,
         private val serializer: KSerializer<T>
     ) : AutoCloseable {
@@ -117,7 +117,7 @@ class SavedState(
             check(!released) { "Slot is closed" }
         }
 
-        fun get(): T? {
+        public fun get(): T? {
             checkLive()
             val bytes = values[key] ?: return null
             return try {
@@ -130,7 +130,7 @@ class SavedState(
             }
         }
 
-        fun set(value: T): Boolean {
+        public fun set(value: T): Boolean {
             checkLive()
             val bytes = try {
                 json.encodeToString(serializer, value).encodeToByteArray()
@@ -143,7 +143,7 @@ class SavedState(
             return false
         }
 
-        fun clear() {
+        public fun clear() {
             checkLive()
             remove(key)
         }

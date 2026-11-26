@@ -20,18 +20,18 @@ import androidx.compose.ui.window.DialogProperties
  * The caller owns the manager and its lifetime; composition disposal is not logical close.
  * Modal and blocking overlay renderers supply content, not another Dialog.
  */
-class UIHost(
+public class UIHost(
     private val manager: UIManager,
     renderers: Map<String, @Composable (UIInstance) -> Unit>,
     private val lifecycle: AppLifecycle? = null,
 ) {
     private val renderers = renderers.toMap()
 
-    fun mount(activity: ComponentActivity, theme: @Composable (@Composable () -> Unit) -> Unit = { content -> content() }) {
+    public fun mount(activity: ComponentActivity, theme: @Composable (@Composable () -> Unit) -> Unit = { content -> content() }) {
         activity.setContent { theme { Content() } }
     }
 
-    @Composable fun Content() {
+    @Composable public fun Content() {
         val state by manager.state.collectAsState()
         val notices by manager.notifications.collectAsState()
         val holder = rememberSaveableStateHolder()

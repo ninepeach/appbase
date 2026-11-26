@@ -6,32 +6,32 @@ import java.util.Collections
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-enum class UILayer { PAGE, OVERLAY, MODAL, TOAST, SYSTEM }
+public enum class UILayer { PAGE, OVERLAY, MODAL, TOAST, SYSTEM }
 
-data class UIRoute(val name: String, val layer: UILayer, val dismissible: Boolean = true,
+public data class UIRoute(val name: String, val layer: UILayer, val dismissible: Boolean = true,
     val blocking: Boolean = layer == UILayer.MODAL || layer == UILayer.SYSTEM,
     val restorable: Boolean = layer == UILayer.PAGE)
 
-data class UIInstance(val id: String, val route: UIRoute, val tab: String,
+public data class UIInstance(val id: String, val route: UIRoute, val tab: String,
     val parent: String?, val arguments: Map<String, String>)
 
-data class UIPrompt(val id: String, val route: String, val tab: String, val owner: String,
+public data class UIPrompt(val id: String, val route: String, val tab: String, val owner: String,
     val key: String, val priority: Int, val expiresAt: Long, val arguments: Map<String, String>)
 
 /**
  * Immutable view for renderers. [blocker] is the single blocking presentation that owns input
  * and back handling; renderers must use it instead of recomputing layer priority.
  */
-data class UISnapshot(val tab: String, val instances: List<UIInstance>,
+public data class UISnapshot(val tab: String, val instances: List<UIInstance>,
     val visible: Set<String>, val interactive: String?, val foreground: Boolean,
     val prompts: List<UIPrompt>, val blocker: String? = null)
 
-sealed interface UIResult {
-    data class Completed(val values: Map<String, String>) : UIResult
-    object Cancelled : UIResult
+public sealed interface UIResult {
+    public data class Completed(val values: Map<String, String>) : UIResult
+    public object Cancelled : UIResult
 }
 
-class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
+public class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val capacity: Int = 128, private val queueCapacity: Int = 32,
     private val toastCapacity: Int = 3,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
@@ -45,7 +45,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val prompts = mutableListOf<UIPrompt>()
     private val activeKeys = mutableMapOf<String, String>()
     private val notices = MutableStateFlow<List<String>>(emptyList())
-    val notifications = notices.asStateFlow()
+    public val notifications: StateFlow<List<String>> = notices.asStateFlow()
     private val rootJob = SupervisorJob()
     private val context = dispatcher + rootJob
     private var selected = roots.keys.firstOrNull() ?: error("At least one root is required")
@@ -60,7 +60,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         }
     }
     private val mutableState = MutableStateFlow(snapshot())
-    val state = mutableState.asStateFlow()
+    public val state: StateFlow<UISnapshot> = mutableState.asStateFlow()
 
     /** Programming errors (unknown route, wrong layer, oversized arguments) throw. */
     private fun validate(route: String, layer: UILayer, args: Map<String, String>) {
@@ -114,7 +114,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private fun publish() { mutableState.value = snapshot() }
 
     /** Transitional navigation snapshot; replaced by typed NavSnapshot during Nav3 migration. */
-    fun bindSavedState(platform: SavedStatePlatform, key: String = "appbase.navigation",
+    public fun bindSavedState(platform: SavedStatePlatform, key: String = "appbase.navigation",
         warning: (String) -> Unit = {}): AutoCloseable {
         platform.checkThread()
         val serializer = kotlinx.serialization.builtins.MapSerializer(
@@ -141,7 +141,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         }
     }
 
-    @Synchronized fun saveNavigation(): Map<String, String> {
+    @Synchronized public fun saveNavigation(): Map<String, String> {
         if (closed) return emptyMap()
         val output = linkedMapOf("version" to "1", "selected" to selected)
         val retained = mutableSetOf<String>()
@@ -162,7 +162,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return output
     }
 
-    fun restoreNavigation(saved: Map<String, String>): Boolean { return mutate { retired ->
+    public fun restoreNavigation(saved: Map<String, String>): Boolean { return mutate { retired ->
         if (closed || entries.size != rootIds.size || saved["version"] != "1") return false
         val tab = saved["selected"] ?: return false
         if (tab !in roots) return false
@@ -214,7 +214,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
      */
     private fun hasCapacity() = !closed && entries.size < capacity
 
-    @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String? {
+    @Synchronized public fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String? {
         validate(route, UILayer.PAGE, arguments)
         if (!hasCapacity() || blockingPresentation() != null) return null
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
@@ -222,7 +222,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return item.id
     }
 
-    @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String? {
+    @Synchronized public fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String? {
         validate(route, UILayer.MODAL, arguments)
         if (!hasCapacity()) return null
         if (presentations().any { it.route.blocking && it.route.layer != UILayer.MODAL }) return null
@@ -233,7 +233,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return item.id
     }
 
-    @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String? {
+    @Synchronized public fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String? {
         validate(route, UILayer.OVERLAY, arguments)
         if (!hasCapacity()) return null
         val item = add(route, selected, modal()?.id ?: page().id, arguments, UILayer.OVERLAY)
@@ -241,13 +241,13 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return item.id
     }
 
-    @Synchronized fun notify(message: String): Boolean {
+    @Synchronized public fun notify(message: String): Boolean {
         if (closed || message.isBlank() || message.length > 2048 || notices.value.size >= queueCapacity) return false
         notices.value = Collections.unmodifiableList(notices.value + message)
         return true
     }
 
-    @Synchronized fun consumeNotice(message: String) {
+    @Synchronized public fun consumeNotice(message: String) {
         if (notices.value.firstOrNull() == message) notices.value = Collections.unmodifiableList(notices.value.drop(1))
     }
 
@@ -255,7 +255,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
      * Nonblocking, auto-closing notice owned by the current page. At most [toastCapacity] toasts
      * live at once; the oldest is closed to admit a new one. Closing the owner page closes it early.
      */
-    fun toast(route: String, arguments: Map<String, String> = emptyMap(), durationMs: Long = 4_000): String? {
+    public fun toast(route: String, arguments: Map<String, String> = emptyMap(), durationMs: Long = 4_000): String? {
         require(durationMs in 1..60_000)
         val id = mutate { retired ->
             validate(route, UILayer.TOAST, arguments)
@@ -277,7 +277,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return id
     }
 
-    @Synchronized fun showSystem(route: String, arguments: Map<String, String> = emptyMap()): String? {
+    @Synchronized public fun showSystem(route: String, arguments: Map<String, String> = emptyMap()): String? {
         validate(route, UILayer.SYSTEM, arguments)
         if (!hasCapacity()) return null
         val item = add(route, selected, page().id, arguments, UILayer.SYSTEM)
@@ -285,7 +285,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return item.id
     }
 
-    @Synchronized fun enqueueModal(route: String, key: String, priority: Int = 0,
+    @Synchronized public fun enqueueModal(route: String, key: String, priority: Int = 0,
         ttlMs: Long = 60_000, arguments: Map<String, String> = emptyMap()): String? {
         check(!closed)
         require(definitions.getValue(route).layer == UILayer.MODAL && key.isNotBlank() && ttlMs in 1..86_400_000)
@@ -310,12 +310,12 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         add(next.route, next.tab, next.owner, next.arguments, UILayer.MODAL, next.id)
         activeKeys[next.id] = next.key
     }
-    @Synchronized fun refresh() {
+    @Synchronized public fun refresh() {
         if (closed) return
         promote()
         publish()
     }
-    @Synchronized fun cancelQueuedModal(id: String): Boolean {
+    @Synchronized public fun cancelQueuedModal(id: String): Boolean {
         val removed = prompts.removeAll { it.id == id }
         if (removed) publish()
         return removed
@@ -338,7 +338,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         prompts.removeAll { it.owner == id }
         retired.add(Retired(jobs.remove(id), results.remove(id), result))
     }
-    fun close(id: String, result: UIResult = UIResult.Cancelled): Boolean { return mutate { retired ->
+    public fun close(id: String, result: UIResult = UIResult.Cancelled): Boolean { return mutate { retired ->
         if (id in rootIds || id !in entries) return false
         val safeResult = if (result is UIResult.Completed) UIResult.Completed(Collections.unmodifiableMap(LinkedHashMap(result.values))) else result
         remove(id, safeResult, retired)
@@ -346,7 +346,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         publish()
         return true
     } }
-    fun back(): Boolean { return mutate { retired ->
+    public fun back(): Boolean { return mutate { retired ->
         if (closed) return false
         val target = blockingPresentation() ?: page()
         if (target.id in rootIds) return false
@@ -357,7 +357,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return true
     } }
     /** Returns false when closed or while a blocking presentation owns input. */
-    @Synchronized fun selectRoot(tab: String): Boolean {
+    @Synchronized public fun selectRoot(tab: String): Boolean {
         require(tab in roots) { "Unknown tab $tab" }
         if (closed || blockingPresentation() != null) return false
         selected = tab
@@ -365,7 +365,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         publish()
         return true
     }
-    fun popModal(): Boolean { return mutate { retired ->
+    public fun popModal(): Boolean { return mutate { retired ->
         if (closed) return false
         val top = modal() ?: return false
         if (!top.route.dismissible) return false
@@ -382,22 +382,22 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     }
 
     @Synchronized
-    fun hasBlockingPresentation(): Boolean = !closed && blockingPresentation() != null
+    public fun hasBlockingPresentation(): Boolean = !closed && blockingPresentation() != null
 
-    @Synchronized fun canGoBack(): Boolean {
+    @Synchronized public fun canGoBack(): Boolean {
         if (closed) return false
         return blockingPresentation() != null || page().id !in rootIds
     }
-    @Synchronized fun setForeground(value: Boolean) {
+    @Synchronized public fun setForeground(value: Boolean) {
         if (closed) return
         foreground = value
         promote()
         publish()
     }
-    @Synchronized fun scope(id: String): CoroutineScope? =
+    @Synchronized public fun scope(id: String): CoroutineScope? =
         jobs[id]?.let { CoroutineScope(context + it) }
-    @Synchronized fun result(id: String): Deferred<UIResult>? = results[id]
-    @Synchronized fun isAlive(id: String): Boolean = id in entries
+    @Synchronized public fun result(id: String): Deferred<UIResult>? = results[id]
+    @Synchronized public fun isAlive(id: String): Boolean = id in entries
     override fun close() {
         mutate { retired ->
             if (closed) return

@@ -1,4 +1,10 @@
-plugins { id("com.android.library"); kotlin("android"); id("org.jetbrains.kotlin.plugin.compose") }
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ktlint)
+    alias(libs.plugins.detekt)
+}
 android {
     namespace = "appbase"
     compileSdk = 36
@@ -6,17 +12,23 @@ android {
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
-kotlin { jvmToolchain(17) }
+kotlin {
+    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+    explicitApi()
+}
+ktlint { ignoreFailures.set(true) }
+detekt { ignoreFailures = true }
+tasks.withType(io.gitlab.arturbosch.detekt.Detekt::class.java).configureEach { jvmTarget = "17" }
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
-    api("androidx.navigation3:navigation3-runtime:1.2.2")
-    implementation("androidx.navigation3:navigation3-ui:1.2.2")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-navigation3:2.10.0")
-    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    api(platform("androidx.compose:compose-bom:2025.04.01"))
-    api("androidx.compose.runtime:runtime")
-    implementation("androidx.compose.material3:material3")
-    api("androidx.activity:activity-compose:1.10.1")
-    api("androidx.savedstate:savedstate:1.2.1")
+    api(libs.kotlinx.serialization.json)
+    api(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
+    implementation(libs.lifecycle.viewmodel.navigation3)
+    api(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
+    api(platform(libs.compose.bom))
+    api(libs.compose.runtime)
+    implementation(libs.compose.material3)
+    api(libs.activity.compose)
+    api(libs.savedstate)
 }

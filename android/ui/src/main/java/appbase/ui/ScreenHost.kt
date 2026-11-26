@@ -9,7 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 
 @Composable
-fun ScreenHost(holder:SaveableStateHolder, screenKey:String, content:@Composable (Modifier)->Unit) {
+public fun ScreenHost(holder:SaveableStateHolder, screenKey:String, content:@Composable (Modifier)->Unit) {
     key(screenKey) {
         holder.SaveableStateProvider(screenKey) {
             val progress=remember { Animatable(0f) }

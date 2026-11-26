@@ -3,20 +3,20 @@ package appbase
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-enum class AppPhase { INACTIVE, FOREGROUND, BACKGROUND, CLOSED }
-data class LifecycleChanged(val phase: AppPhase) : AppEvent
+public enum class AppPhase { INACTIVE, FOREGROUND, BACKGROUND, CLOSED }
+public data class LifecycleChanged(val phase: AppPhase) : AppEvent
 
 /** Latest state is authoritative; platform callbacks must be serialized by the owner. */
-class AppLifecycle(parent: CoroutineScope, private val events: EventBus? = null) : AutoCloseable {
+public class AppLifecycle(parent: CoroutineScope, private val events: EventBus? = null) : AutoCloseable {
     private val job = SupervisorJob(parent.coroutineContext[Job])
     private val context = parent.coroutineContext.minusKey(Job)
     private val mutable = MutableStateFlow(AppPhase.INACTIVE)
-    val phase = mutable.asStateFlow()
+    public val phase: StateFlow<AppPhase> = mutable.asStateFlow()
     private var active: CoroutineScope? = null
     init {
         job.invokeOnCompletion { markClosed() }
     }
-    fun transition(next: AppPhase) {
+    public fun transition(next: AppPhase) {
         val previous = synchronized(this) {
         check(job.isActive && mutable.value != AppPhase.CLOSED)
         require(next != AppPhase.CLOSED)
@@ -29,7 +29,7 @@ class AppLifecycle(parent: CoroutineScope, private val events: EventBus? = null)
         }
         previous?.cancel()
     }
-    @Synchronized fun foregroundScope(): CoroutineScope? = active?.takeIf { job.isActive && it.isActive }
+    @Synchronized public fun foregroundScope(): CoroutineScope? = active?.takeIf { job.isActive && it.isActive }
     private fun markClosed() {
         synchronized(this) {
             if (mutable.value == AppPhase.CLOSED) return

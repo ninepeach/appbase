@@ -5,7 +5,7 @@ import android.os.Looper
 import android.os.Parcel
 import androidx.savedstate.SavedStateRegistry
 
-class AndroidSavedState(
+public class AndroidSavedState(
     private val registry: SavedStateRegistry,
     private val maxBytes: Int = 131072
 ) : SavedStatePlatform {

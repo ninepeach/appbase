@@ -6,18 +6,18 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlin.reflect.KClass
 
-interface Command<R>
-interface ChannelCommand<T>
-interface AppEvent
-class StateKey<T>(val name: String)
-class Capability(allowed: Set<String>) {
+public interface Command<R>
+public interface ChannelCommand<T>
+public interface AppEvent
+public class StateKey<T>(public val name: String)
+public class Capability(allowed: Set<String>) {
     private val allowed = allowed.toSet()
-    fun check(id: String) { if (id !in allowed) throw SecurityException("Denied: $id") }
+    public fun check(id: String) { if (id !in allowed) throw SecurityException("Denied: $id") }
 }
-data class Execution(val timeoutMs: Long = 30_000, val serial: Boolean = false, val queueTimeoutMs: Long = 30_000) { init { require(timeoutMs > 0 && queueTimeoutMs > 0) } }
-class QueueFull : IllegalStateException("Command queue full")
-class AppContext internal constructor(val events: EventBus, val state: StateStore, val inspector: Inspector, val scope: CoroutineScope)
-class CommandService(private val context: AppContext, workers: Int = 4, capacity: Int = 32) {
+public data class Execution(val timeoutMs: Long = 30_000, val serial: Boolean = false, val queueTimeoutMs: Long = 30_000) { init { require(timeoutMs > 0 && queueTimeoutMs > 0) } }
+public class QueueFull : IllegalStateException("Command queue full")
+public class AppContext internal constructor(public val events: EventBus, public val state: StateStore, public val inspector: Inspector, public val scope: CoroutineScope)
+public class CommandService(private val context: AppContext, workers: Int = 4, capacity: Int = 32) {
     private data class Entry(val id: String, val policy: Execution, val run: suspend (Any) -> Any?)
     private data class StreamEntry(val id: String, val run: (Any) -> Flow<*>)
     private data class Work(val entry: Entry, val input: Any, val result: CompletableDeferred<Any?>, val admitted: CompletableDeferred<Unit> = CompletableDeferred())
@@ -33,10 +33,10 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
     init { require(workers > 0 && capacity > 0) }
     private val workerCount = workers
     private fun validId(id: String) = id.length in 1..128 && id.all { it.isLetterOrDigit() || it in "._-" }
-    @Synchronized fun <C : Command<R>, R> register(type: KClass<C>, id: String, policy: Execution = Execution(), handler: suspend (C) -> R) {
+    @Synchronized public fun <C : Command<R>, R> register(type: KClass<C>, id: String, policy: Execution = Execution(), handler: suspend (C) -> R) {
         check(!started && !closed); require(validId(id) && type !in commands && ids.add(id)); commands[type] = Entry(id, policy) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
-    @Synchronized fun <C : ChannelCommand<T>, T> registerChannel(type: KClass<C>, id: String, handler: (C) -> Flow<T>) {
+    @Synchronized public fun <C : ChannelCommand<T>, T> registerChannel(type: KClass<C>, id: String, handler: (C) -> Flow<T>) {
         check(!started && !closed); require(validId(id) && type !in streams && ids.add(id)); streams[type] = StreamEntry(id) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
     @Synchronized internal fun start() {
@@ -45,7 +45,7 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
         scope.launch { consume(serial) }
         started = true
     }
-    fun client(capability: Capability) = CommandClient(this, capability)
+    public fun client(capability: Capability): CommandClient = CommandClient(this, capability)
     private suspend fun consume(queue: Channel<Work>) { for (work in queue) {
         if (!work.result.isActive) continue
         work.admitted.complete(Unit)
@@ -85,28 +85,28 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
         serial.cancel()
     }
 }
-class CommandClient internal constructor(private val service: CommandService, private val capability: Capability) {
-    suspend fun <R> execute(command: Command<R>): R = service.execute(command, capability)
-    fun <T> stream(command: ChannelCommand<T>): Flow<T> = service.stream(command, capability)
+public class CommandClient internal constructor(private val service: CommandService, private val capability: Capability) {
+    public suspend fun <R> execute(command: Command<R>): R = service.execute(command, capability)
+    public fun <T> stream(command: ChannelCommand<T>): Flow<T> = service.stream(command, capability)
 }
-interface Plugin { fun install(context: AppContext, commands: CommandService); fun close() {} }
-class App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int = 32) : AutoCloseable {
+public interface Plugin { public fun install(context: AppContext, commands: CommandService); public fun close() {} }
+public class App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int = 32) : AutoCloseable {
     private val plugins = plugins.toList()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val context = AppContext(EventBus(), StateStore(), Inspector(), scope)
-    val log = Logger()
-    val event get() = context.events
-    val state get() = context.state
-    val inspector get() = context.inspector
-    val lifecycle = AppLifecycle(scope, event)
-    val platform = WakeRouter(event)
-    val commands = CommandService(context, workers, capacity)
-    val cmd get() = commands
+    public val context: AppContext = AppContext(EventBus(), StateStore(), Inspector(), scope)
+    public val log: Logger = Logger()
+    public val event: EventBus get() = context.events
+    public val state: StateStore get() = context.state
+    public val inspector: Inspector get() = context.inspector
+    public val lifecycle: AppLifecycle = AppLifecycle(scope, event)
+    public val platform: WakeRouter = WakeRouter(event)
+    public val commands: CommandService = CommandService(context, workers, capacity)
+    public val cmd: CommandService get() = commands
     private val installed = mutableListOf<Plugin>()
     private enum class Status { NEW, STARTING, RUNNING, CLOSING, CLOSED }
     private var status = Status.NEW
     // Only state transitions hold the monitor; plugin callbacks never do.
-    fun start() {
+    public fun start() {
         synchronized(this) {
             check(status == Status.NEW)
             status = Status.STARTING

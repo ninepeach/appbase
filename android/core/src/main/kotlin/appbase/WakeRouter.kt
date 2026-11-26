@@ -2,21 +2,21 @@ package appbase
 
 import kotlinx.coroutines.sync.Mutex
 
-enum class WakeReason { COLD_START, FOREGROUND, PUSH, NOTIFICATION_TAP, DEEP_LINK, BACKGROUND_TASK }
-data class WakeRequest(val reason: WakeReason, val id: String, val route: String, val expiresAtMs: Long, val payload: String = "")
-data class WakeHandled(val reason: WakeReason, val route: String) : AppEvent
-enum class WakeResult { HANDLED, DUPLICATE, EXPIRED, UNKNOWN_ROUTE, INVALID, BUSY, CLOSED }
+public enum class WakeReason { COLD_START, FOREGROUND, PUSH, NOTIFICATION_TAP, DEEP_LINK, BACKGROUND_TASK }
+public data class WakeRequest(val reason: WakeReason, val id: String, val route: String, val expiresAtMs: Long, val payload: String = "")
+public data class WakeHandled(val reason: WakeReason, val route: String) : AppEvent
+public enum class WakeResult { HANDLED, DUPLICATE, EXPIRED, UNKNOWN_ROUTE, INVALID, BUSY, CLOSED }
 /** In-memory deduplication only; handlers must be idempotent across process death. */
-class WakeRouter(private val events: EventBus, private val capacity: Int = 256) : AutoCloseable {
+public class WakeRouter(private val events: EventBus, private val capacity: Int = 256) : AutoCloseable {
     init { require(capacity in 1..4096) }
     private val mutex = Mutex()
     private val handlers = mutableMapOf<String, suspend (WakeRequest) -> Unit>()
     private val seen = LinkedHashMap<String, Long>()
     @Volatile private var closed = false
-    @Synchronized fun register(route: String, handler: suspend (WakeRequest) -> Unit) {
+    @Synchronized public fun register(route: String, handler: suspend (WakeRequest) -> Unit) {
         check(!closed); require(route.length in 1..128 && route !in handlers && handlers.size < capacity); handlers[route] = handler
     }
-    suspend fun dispatch(request: WakeRequest): WakeResult {
+    public suspend fun dispatch(request: WakeRequest): WakeResult {
         if (request.id.length !in 1..128 || request.route.length !in 1..128 || request.payload.length > 4096) return WakeResult.INVALID
         if (closed) return WakeResult.CLOSED
         if (!mutex.tryLock()) return WakeResult.BUSY
