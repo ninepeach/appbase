@@ -18,20 +18,27 @@ class WakeRouter(private val events: EventBus, private val capacity: Int = 256) 
     }
     suspend fun dispatch(request: WakeRequest): WakeResult {
         if (request.id.length !in 1..128 || request.route.length !in 1..128 || request.payload.length > 4096) return WakeResult.INVALID
+        if (closed) return WakeResult.CLOSED
         if (!mutex.tryLock()) return WakeResult.BUSY
         try {
+            val handler = synchronized(this) {
             if (closed) return WakeResult.CLOSED
             val now = System.currentTimeMillis()
             if (request.expiresAtMs <= now) return WakeResult.EXPIRED
             seen.entries.removeAll { it.value <= now }
             if (request.id in seen) return WakeResult.DUPLICATE
             if (seen.size >= capacity) return WakeResult.BUSY
-            val handler = synchronized(this) { handlers[request.route] } ?: return WakeResult.UNKNOWN_ROUTE
+            handlers[request.route] ?: return WakeResult.UNKNOWN_ROUTE
+            }
             handler(request)
-            seen[request.id] = request.expiresAtMs
-            events.tryEmit(WakeHandled(request.reason, request.route))
-            return WakeResult.HANDLED
+            return synchronized(this) {
+                if (closed) WakeResult.CLOSED else {
+                    seen[request.id] = request.expiresAtMs
+                    events.tryEmit(WakeHandled(request.reason, request.route))
+                    WakeResult.HANDLED
+                }
+            }
         } finally { mutex.unlock() }
     }
-    @Synchronized override fun close() { closed = true; handlers.clear() }
+    @Synchronized override fun close() { closed = true; handlers.clear(); seen.clear() }
 }
