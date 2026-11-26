@@ -1,5 +1,6 @@
 package appbase
 
+import kotlinx.serialization.builtins.serializer
 import java.util.UUID
 import java.util.Collections
 import kotlinx.coroutines.*
@@ -94,13 +95,26 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     }
     private fun publish() { mutableState.value = snapshot() }
 
-    /** Attach once per native owner, before rendering. Caller closes registration on detach. */
-    fun bindSavedState(savedState: SavedState, key: String = "appbase.navigation"): AutoCloseable {
-        val saved = runCatching { savedState.get(key) }.getOrNull()
-        if (saved is Map<*, *> && saved.all { it.key is String && it.value is String }) {
-            restoreNavigation(saved.entries.associate { (k, v) -> k as String to v as String })
+    /** Transitional navigation snapshot; replaced by typed NavSnapshot during Nav3 migration. */
+    fun bindSavedState(platform: SavedStatePlatform, key: String = "appbase.navigation"): AutoCloseable {
+        platform.checkThread()
+        val serializer = kotlinx.serialization.builtins.MapSerializer(
+            String.serializer(),
+            String.serializer()
+        )
+        val json = kotlinx.serialization.json.Json
+        val restored = platform.consume(key)?.get("navigation")
+        if (restored != null) {
+            runCatching {
+                restoreNavigation(json.decodeFromString(serializer, restored.decodeToString()))
+            }
         }
-        return savedState.register(key) { saveNavigation() }
+        return platform.register(key) {
+            val bytes = json.encodeToString(serializer, saveNavigation()).encodeToByteArray()
+            val snapshot = mapOf("navigation" to bytes)
+            check(platform.fits(snapshot)) { "Navigation snapshot exceeds native budget" }
+            snapshot
+        }
     }
 
     @Synchronized fun saveNavigation(): Map<String, String> {
