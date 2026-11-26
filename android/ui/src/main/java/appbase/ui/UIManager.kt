@@ -20,13 +20,13 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
         var previous by remember { mutableStateOf(emptySet<Long>()) }
         LaunchedEffect(stack) {
             val current = stack.map { it.instance }.toSet()
-            (previous - current).forEach { holder.removeState(it) }
+            (previous - current).forEach { holder.removeState(it.toString()) }
             previous = current
         }
         BackHandler(enabled = stack.any { it.layer != Layer.TOAST && it.instance != stack.first().instance }) { navigation.back() }
         Box(Modifier.fillMaxSize()) {
             val screen = stack.last { it.layer == Layer.SCREEN }
-            key(screen.instance) { holder.SaveableStateProvider(screen.instance) { renderers.getValue(screen.id)(screen) } }
+            ScreenHost(holder,screen.instance.toString()) { transition -> Box(Modifier.fillMaxSize().then(transition)) { renderers.getValue(screen.id)(screen) } }
             stack.filter { it.layer != Layer.SCREEN }.sortedWith(compareBy<UIEntry> { it.layer.ordinal }.thenBy { it.instance }).forEach { item ->
                 key(item.instance) { renderers.getValue(item.id)(item) }
             }
