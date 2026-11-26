@@ -88,7 +88,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         val active = page()
         val layers = presentations().sortedBy { it.route.layer.ordinal }
         val visible = (listOf(active) + layers).map { it.id }.toSet()
-        val input = layers.lastOrNull { it.route.blocking } ?: active
+        val input = blockingPresentation() ?: active
         return UISnapshot(selected, Collections.unmodifiableList(entries.values.toList()), Collections.unmodifiableSet(visible),
             input.id.takeIf { foreground }, foreground, Collections.unmodifiableList(prompts.toList()))
     }
@@ -172,7 +172,8 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String {
         check(presentations().none { it.route.blocking }) { "Close blocking presentation first" }
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
-        publish(); return item.id
+        publish()
+        return item.id
     }
     @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String {
         check(!closed)
@@ -180,11 +181,13 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         val parent = modal()?.id ?: page().id
         require(owner == null || owner == parent) { "Owner must be the current page or modal" }
         val item = add(route, selected, parent, arguments, UILayer.MODAL)
-        publish(); return item.id
+        publish()
+        return item.id
     }
     @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String {
         val item = add(route, selected, modal()?.id ?: page().id, arguments, UILayer.OVERLAY)
-        publish(); return item.id
+        publish()
+        return item.id
     }
     @Synchronized fun notify(message: String): Boolean {
         if (closed || message.isBlank() || message.length > 2048 || notices.value.size >= queueCapacity) return false
@@ -196,11 +199,13 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     }
     @Synchronized fun toast(route: String, arguments: Map<String, String> = emptyMap()): String {
         val item = add(route, selected, page().id, arguments, UILayer.TOAST)
-        publish(); return item.id
+        publish()
+        return item.id
     }
     @Synchronized fun showSystem(route: String, arguments: Map<String, String> = emptyMap()): String {
         val item = add(route, selected, page().id, arguments, UILayer.SYSTEM)
-        publish(); return item.id
+        publish()
+        return item.id
     }
     @Synchronized fun enqueueModal(route: String, key: String, priority: Int = 0,
         ttlMs: Long = 60_000, arguments: Map<String, String> = emptyMap()): String? {
@@ -208,10 +213,13 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         require(definitions.getValue(route).layer == UILayer.MODAL && key.isNotBlank() && ttlMs in 1..86_400_000)
         require(arguments.size <= 64 && arguments.all { it.key.length <= 128 && it.value.length <= 8192 })
         prune()
-        if (prompts.size >= queueCapacity || prompts.any { it.key == key } || key in activeKeys.values) { publish(); return null }
+        if (prompts.size >= queueCapacity || prompts.any { it.key == key } || key in activeKeys.values) { publish()
+        return null }
         val id = UUID.randomUUID().toString()
         prompts.add(UIPrompt(id, route, selected, page().id, key, priority, clock() + ttlMs, Collections.unmodifiableMap(LinkedHashMap(arguments))))
-        promote(); publish(); return id
+        promote()
+        publish()
+        return id
     }
     private fun prune() { prompts.removeAll { it.expiresAt <= clock() || it.owner !in entries } }
     private fun promote() {
@@ -222,7 +230,8 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         add(next.route, next.tab, next.owner, next.arguments, UILayer.MODAL, next.id)
         activeKeys[next.id] = next.key
     }
-    @Synchronized fun refresh() { if (!closed) { promote(); publish() } }
+    @Synchronized fun refresh() { if (!closed) { promote()
+        publish() } }
     @Synchronized fun cancelQueuedModal(id: String): Boolean {
         val removed = prompts.removeAll { it.id == id }
         if (removed) publish()
@@ -249,34 +258,57 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     fun close(id: String, result: UIResult = UIResult.Cancelled): Boolean { return mutate { retired ->
         if (id in rootIds || id !in entries) return false
         val safeResult = if (result is UIResult.Completed) UIResult.Completed(Collections.unmodifiableMap(LinkedHashMap(result.values))) else result
-        remove(id, safeResult, retired); promote(); publish(); return true
+        remove(id, safeResult, retired)
+        promote()
+        publish()
+        return true
     } }
     fun back(): Boolean { return mutate { retired ->
         if (closed) return false
-        val target = presentations().sortedBy { it.route.layer.ordinal }.lastOrNull { it.route.blocking }
-            ?: page()
+        val target = blockingPresentation() ?: page()
         if (target.id in rootIds) return false
         if (!target.route.dismissible) return true
-        remove(target.id, UIResult.Cancelled, retired); promote(); publish(); return true
+        remove(target.id, UIResult.Cancelled, retired)
+        promote()
+        publish()
+        return true
     } }
     @Synchronized fun selectRoot(tab: String) {
-        check(!closed); require(tab in roots)
+        check(!closed)
+        require(tab in roots)
         if (presentations().any { it.route.blocking }) return
-        selected = tab; promote(); publish()
+        selected = tab
+        promote()
+        publish()
     }
     fun popModal(): Boolean { return mutate { retired ->
         if (closed) return false
         val top = modal() ?: return false
         if (!top.route.dismissible) return false
-        remove(top.id, UIResult.Cancelled, retired); promote(); publish(); return true
+        remove(top.id, UIResult.Cancelled, retired)
+        promote()
+        publish()
+        return true
     } }
+    private fun blockingPresentation(): UIInstance? {
+        val visible = presentations()
+        return visible.lastOrNull { it.route.layer == UILayer.SYSTEM && it.route.blocking }
+            ?: visible.lastOrNull { it.route.layer == UILayer.MODAL && it.route.blocking }
+            ?: visible.lastOrNull { it.route.layer == UILayer.OVERLAY && it.route.blocking }
+    }
+
+    @Synchronized
+    fun hasBlockingPresentation(): Boolean = !closed && blockingPresentation() != null
+
     @Synchronized fun canGoBack(): Boolean {
         if (closed) return false
-        return presentations().any { it.route.blocking } || page().id !in rootIds
+        return blockingPresentation() != null || page().id !in rootIds
     }
     @Synchronized fun setForeground(value: Boolean) {
         if (closed) return
-        foreground = value; promote(); publish()
+        foreground = value
+        promote()
+        publish()
     }
     @Synchronized fun scope(id: String): CoroutineScope? =
         jobs[id]?.let { CoroutineScope(context + it) }
@@ -287,7 +319,9 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
             if (closed) return
             closed = true
             entries.keys.toList().asReversed().forEach { if (it in entries) remove(it, UIResult.Cancelled, retired) }
-            prompts.clear(); notices.value = emptyList(); publish()
+            prompts.clear()
+        notices.value = emptyList()
+        publish()
             retired.add(Retired(rootJob, null, UIResult.Cancelled))
         }
     }
