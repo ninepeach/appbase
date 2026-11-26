@@ -219,7 +219,8 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         try { return synchronized(this) { block(retired) } }
         finally {
             retired.forEach { item ->
-                try { item.job?.cancel() } finally { item.deferred?.complete(item.result) }
+                runCatching { item.job?.cancel() }
+                runCatching { item.deferred?.complete(item.result) }
             }
         }
     }
@@ -265,10 +266,13 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         jobs[id]?.let { CoroutineScope(context + it) }
     @Synchronized fun result(id: String): Deferred<UIResult>? = results[id]
     @Synchronized fun isAlive(id: String): Boolean = id in entries
-    @Synchronized override fun close() {
-        if (closed) return
-        closed = true
-        entries.keys.toList().asReversed().forEach { if (it in entries) remove(it, UIResult.Cancelled) }
-        prompts.clear(); notices.value = emptyList(); rootJob.cancel(); publish()
+    override fun close() {
+        mutate { retired ->
+            if (closed) return
+            closed = true
+            entries.keys.toList().asReversed().forEach { if (it in entries) remove(it, UIResult.Cancelled, retired) }
+            prompts.clear(); notices.value = emptyList(); publish()
+            retired.add(Retired(rootJob, null, UIResult.Cancelled))
+        }
     }
 }
