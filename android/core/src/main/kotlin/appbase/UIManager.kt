@@ -83,7 +83,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
 
     /** Attach once per native owner, before rendering. Caller closes registration on detach. */
     fun bindSavedState(savedState: SavedState, key: String = "appbase.navigation"): AutoCloseable {
-        val saved = runCatching { savedState.consume(key) }.getOrNull()
+        val saved = runCatching { savedState.get(key) }.getOrNull()
         if (saved != null) restoreNavigation(saved)
         return savedState.register(key) { saveNavigation() }
     }
@@ -106,12 +106,11 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
             index++
         }
         output["count"] = index.toString()
-        return if (output.entries.sumOf { it.key.length.toLong() + it.value.length } <= 32768) output else emptyMap()
+        return output
     }
 
     @Synchronized fun restoreNavigation(saved: Map<String, String>): Boolean {
         if (closed || entries.size != rootIds.size || saved["version"] != "1") return false
-        if (saved.entries.sumOf { it.key.length.toLong() + it.value.length } > 32768) return false
         val tab = saved["selected"] ?: return false
         if (tab !in roots) return false
         val count = saved["count"]?.toIntOrNull() ?: return false
