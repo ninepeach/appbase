@@ -84,6 +84,8 @@ Core estimates: 32 bytes per entry plus UTF-8 key; 16 bytes per value and map me
 
 ## 5. Platform and lifecycle
 
+Target module placement: SavedState and AndroidSavedState both belong to Core, alongside UIManager and UIHost. The native adapter currently resides in the UI library; relocation and Android Core build migration are pending. Core must not depend on the optional visual component library. See [UIManager](ui-manager.md).
+
 AndroidSavedState(registry, maxBytes = 131072) encodes supported types into tagged Bundles, decodes on consume, and checks actual Parcel size. Register after the native registry is restored and before its save phase; dispose on the native owner thread. No guarantee of OS save delivery. UIManager.bindSavedState restores its navigation map then registers a provider; arbitrary route arguments are excluded. Unified app.savedState ownership and UIHost automatic binding remain pending. Native adapter and core limits must be configured coherently.
 
 ## 6. Potential problems and solutions
@@ -112,5 +114,5 @@ Before Stable: compile core and Android UI; test every supported type and defens
 ## 8. Source locations
 
 - android/core/src/main/kotlin/appbase/SavedState.kt
-- android/ui/src/main/java/appbase/ui/AndroidSavedState.kt
+- android/ui/src/main/java/appbase/ui/AndroidSavedState.kt (current; target: Core)
 - android/core/src/main/kotlin/appbase/UIManager.kt
