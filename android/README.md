@@ -3,7 +3,7 @@
 The Android workspace contains the Core library, the optional UI library, and the opt-in `appbaseTest` verification application.
 
 ## Build
-With JDK 17, Gradle 8.11.1 and Android SDK 35:
+With JDK 17, Gradle 8.11.1 and Android SDK 36 (Kotlin 2.2.21, AGP 8.9.2, Navigation 3 1.2.2):
 ```
 cd android
 gradle :core:build :ui:assembleDebug
