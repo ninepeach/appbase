@@ -7,14 +7,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
@@ -53,7 +51,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     )
     val navs = rememberSaveable(saver=navSaver) { tabs.map { Navigation(pages.associateWith { Layer.SCREEN }, it) } }
     val nav = navs[tab]
-    val stack by nav.stack.collectAsState()
+    val stack by nav.stack.collectAsStateWithLifecycle()
     val page = stack.last().id
     val holder = rememberSaveableStateHolder()
     val model = rememberSaveable(saver=DemoModel.saver) { DemoModel() }
@@ -94,10 +92,8 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                             if(page=="Home") TextButton(onClick={model.editing=null;open("Node editor")}) { Text(demoLabel("+ Add",language)) }
                             if(page=="Config") TextButton(onClick={model.configEdit="";open("Configuration editor")}) { Text(demoLabel("+ Add",language)) }
                         }
-                        holder.SaveableStateProvider("$tab:${stack.last().instance}") {
-                            val opacity = remember { Animatable(0f) }
-                            LaunchedEffect(Unit) { opacity.animateTo(1f, tween(160)) }
-                            Column(Modifier.fillMaxSize().graphicsLayer { alpha = opacity.value }.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                        ScreenHost(holder,"$tab:${stack.last().instance}") { transition ->
+                            Column(Modifier.fillMaxSize().then(transition).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                                 when(page) {
                                     "Home" -> {
                                         Group {
