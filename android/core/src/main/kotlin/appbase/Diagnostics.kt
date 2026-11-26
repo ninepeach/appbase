@@ -1,5 +1,6 @@
 package appbase
 
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicLong
@@ -57,5 +58,5 @@ class Inspector(private val capacity: Int = 100) {
     private val seq = AtomicLong()
     private val entries = kotlinx.coroutines.flow.MutableStateFlow<List<Trace>>(emptyList())
     val traces = entries.asStateFlow()
-    @Synchronized internal fun record(id: String, phase: String) { require(id.length in 1..128 && phase.length in 1..64); entries.value = (entries.value + Trace(seq.incrementAndGet(), id, phase)).takeLast(capacity) }
+    @Synchronized internal fun record(id: String, phase: String) { if (id.length !in 1..128 || phase.length !in 1..64) return; entries.value = (entries.value + Trace(seq.incrementAndGet(), id, phase)).takeLast(capacity) }
 }
