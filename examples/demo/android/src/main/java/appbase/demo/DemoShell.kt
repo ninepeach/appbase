@@ -13,6 +13,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
@@ -56,6 +59,18 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     val holder = rememberSaveableStateHolder()
     val model = rememberSaveable(saver=DemoModel.saver) { DemoModel() }
     val controller=remember(model){DemoController(model)}
+    val owner=LocalLifecycleOwner.current
+    DisposableEffect(owner,controller) {
+        val observer=LifecycleEventObserver { _, event ->
+            when(event) {
+                Lifecycle.Event.ON_START -> controller.log("UI foreground")
+                Lifecycle.Event.ON_STOP -> controller.log("UI background")
+                else -> Unit
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
     val nodes=model.nodes
     val configs=model.configs
     val configBodies=model.configBodies
