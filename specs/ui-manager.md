@@ -1,6 +1,7 @@
 # UIManager Design Specification
 
-Status: target specification. Implementation and test readiness are tracked separately.
+Status: core state machine and Android UIHost implemented; integration, hardening and verification pending. Requirements below are target behavior unless explicitly identified as current implementation.
+Document standard: [Appbase design document standard](design-document-standard.md). Related: [SavedState](saved-state.md).
 Parent specification: [Appbase Architecture](architecture.md).
 
 ## 1. Purpose
@@ -92,3 +93,114 @@ Additional tests:
 - Demo uses the same authoritative UIManager; no parallel navigation implementation.
 
 Validate the pure state machine with automated tests and the native host with device or emulator tests. Measure startup, memory and recomposition before making performance claims. This document specifies required behavior, not current implementation completeness.
+
+## 9. Design rationale and current implementation
+
+UIManager owns instance identity, ordering, ownership and state lifetime. UIHost owns native rendering, input enforcement and native widget state. SavedState owns bounded navigation persistence; AppLifecycle owns application lifecycle signals. This separation avoids duplicating native facilities or coupling the pure Kotlin state machine to Android. Android core uses Kotlin/JVM, UUID and kotlinx.coroutines (StateFlow, SupervisorJob, CompletableDeferred); UIHost uses Android Activity and Compose. No dedicated UIManager thread or polling loop.
+
+The current manager uses one insertion-ordered instance registry rather than separate public stack managers. Each tab has a protected root; the last PAGE in a tab is its active page. Parent links support recursive removal. Route identity is reusable; UUID instance identity is unique per opening. The snapshot separates live instances, visible IDs, interactive ID and foreground. StateFlow represents authoritative current state, not an event history. Mutations synchronize on the manager monitor; each instance has a child job and result deferred. Close removes descendants, cancels jobs and completes results. The native host renders the active page and top blocking dialog, with SaveableStateHolder keyed by instance ID. It removes state for closed IDs and uses native Snackbar duration. Composition disposal is not logical close.
+
+Prompt queue is distinct from modal stack: current prompts belong to the active page, not the current modal. Promotion requires foreground, matching tab and page, no blocker and available capacity. Highest priority wins; equal priority preserves insertion order. Expiry is lazy, checked on promotion/prune or explicit refresh, not by a timer. This is deliberate to avoid a dedicated worker.
+
+## 10. Actual Android public API
+
+The following signatures reflect current source, rather than proposed convenience APIs in section 3.
+
+```kotlin
+UIManager(
+    routes: Collection<UIRoute>,
+    roots: Map<String, String>,
+    capacity: Int = 128,
+    queueCapacity: Int = 32,
+    clock: () -> Long = { System.nanoTime() / 1_000_000 },
+    dispatcher: CoroutineDispatcher = Dispatchers.Default
+)
+```
+
+| API | Current behavior |
+|---|---|
+| state: StateFlow<UISnapshot> | Current tab, instances, visible IDs, interactive ID, foreground, pending prompts |
+| notifications: StateFlow<List<String>> | Pending notice messages |
+| selectRoot(tab: String) | Switch tab unless blocked; Unit |
+| openPage(route, arguments = emptyMap()) | Push page, return UUID; throws if blocked |
+| openModal(route, arguments = emptyMap(), owner: String? = null) | Open child of current modal or page; explicit owner must match |
+| showOverlay(route, arguments = emptyMap()) | Open route owned by current modal/page; return UUID |
+| showSystem(route, arguments = emptyMap()) | Open system presentation owned by current page |
+| toast(route, arguments = emptyMap()) | Creates TOAST instance; currently not rendered or auto-expired by UIHost; prefer notify |
+| notify(message: String): Boolean | Admit nonblank notice up to 2048 characters; false on closed/full |
+| consumeNotice(message: String) | Host removes matching head message |
+| enqueueModal(route, key, priority = 0, ttlMs = 60000, arguments = emptyMap()): String? | Queue or immediately promote; null on duplicate/full |
+| cancelQueuedModal(id: String): Boolean | Cancel pending prompt only |
+| refresh() | Prune and attempt promotion |
+| back(): Boolean | Close top blocker or page; nondismissible consumes; root returns false |
+| popModal(): Boolean | Close top dismissible modal; false if absent/nondismissible |
+| close(id, result = UIResult.Cancelled): Boolean | Exact instance close and descendant cancellation; stale/root false |
+| canGoBack(): Boolean | Whether a blocker or non-root page exists |
+| isAlive(id: String): Boolean | Registry membership |
+| scope(id: String): CoroutineScope? | Instance-owned coroutine scope |
+| result(id: String): Deferred<UIResult>? | Capture before closing; completed result or cancellation value |
+| setForeground(value: Boolean) | Update foreground and attempt promotion |
+| bindSavedState(savedState, key = "appbase.navigation"): AutoCloseable | Restore then register navigation provider; caller owns registration |
+| saveNavigation(): Map<String, String> | Versioned navigation descriptors |
+| restoreNavigation(saved: Map<String, String>): Boolean | Validate and restore only on fresh root-only manager |
+| close() | Cancel all instances, clear queues and close root job |
+
+Arguments are Map<String, String>. Route definition: name, layer, dismissible (default true), blocking (default true for MODAL/SYSTEM), restorable (default true for PAGE). UIResult is Completed(values: Map<String,String>) or Cancelled. Unknown route, wrong layer, invalid arguments, invalid owner and instance capacity failures throw. Root selection while blocked is a no-op. Proposed replacePage, popToRoot and awaitResult convenience APIs are not implemented.
+
+```kotlin
+val ui = UIManager(
+    routes = listOf(
+        UIRoute("home", UILayer.PAGE),
+        UIRoute("settings", UILayer.PAGE),
+        UIRoute("editor", UILayer.MODAL),
+        UIRoute("confirm", UILayer.MODAL)
+    ),
+    roots = mapOf("home" to "home", "settings" to "settings")
+)
+val editor = ui.openModal("editor")
+val result = ui.result(editor)
+val confirm = ui.openModal("confirm", owner = editor)
+ui.back() // closes confirm, editor remains
+check(!ui.close(confirm))
+ui.close(editor, UIResult.Completed(mapOf("saved" to "true")))
+// result?.await() in a coroutine
+```
+
+UIHost(manager, renderers: Map<String, @Composable (UIInstance) -> Unit>, lifecycle: AppLifecycle? = null) exposes mount(activity) and composable Content(). Dialog renderers provide content, not another Dialog. Caller owns manager lifetime and SavedState binding.
+
+## 11. Limits, recovery and error handling
+
+Defaults: 128 live instances including roots; 32 pending prompts and separately 32 notices; arguments at most 64 entries, key 128 characters and value 8192 characters; notice 2048 characters; prompt TTL 1–86,400,000 ms, default 60,000 ms. These are character/count bounds, not aggregate memory byte limits. The navigation provider additionally obeys SavedState limits.
+
+Navigation schema v1 records selected tab, count, instance UUID, route, tab and parent. Only restorable PAGE/MODAL entries with retained parents are included. All arguments are currently excluded, not merely sensitive arguments. Restore validates version, UUID uniqueness, known routes/tabs, parent chains and all roots before mutation; invalid input leaves current roots intact. No live jobs, results, prompts, overlays or notices are restored. UIHost uses native SaveableStateHolder for local saveable state; automatic SavedState binding and end-to-end process recreation are not verified.
+
+## 12. Potential problems and solutions
+
+| Problem | Current mitigation and remaining work |
+|---|---|
+| Stale close or duplicate route | UUID and exact close; capture result before close. Test repeated opens and late callbacks. |
+| Parent teardown | Recursive child removal and job cancellation. Test cancellation callbacks and result completion ordering. |
+| Reentrant callbacks / lock inversion | Current cancellation and deferred completion occur under manager monitor; move external completion/cancellation outside critical section with ordered state commit if needed. Test reentry and concurrent close. |
+| Covered page overlay leaks | Current presentations are selected by tab, not active owner chain; filter visibility and input by active page/modal ancestry. |
+| Modal input isolation | Native Dialog provides top blocking surface; reported interactive ID alone does not enforce pointer/focus/accessibility for all custom overlays or background content. Validate host and enforce isolation. |
+| Blocking SYSTEM/overlay ordering | openModal and popModal currently use top modal rather than top blocker; define consistent blocker policy and test mixed layers. |
+| Prompt expiry and starvation | Lazy expiry and priority queue; no preemption. Refresh on lifecycle/operations; document page-bound ownership and consider fairness only if required. |
+| Notice restart and duplicate text | Current Snackbar effect keys include queue size and text; enqueue can restart active notice. Use stable notice IDs and consume by ID; test background/resume. |
+| TOAST route accumulation | Current toast creates an instance but UIHost excludes TOAST; use notify for now; remove redundant API or implement bounded native expiration. |
+| SavedState overflow | Flat navigation map uses four fields per instance plus metadata; default 256 collection elements can reject 64 or more instances. Use compact structured descriptors or a smaller explicit restoration limit; report rejection. |
+| Missing restore parent field | Current restore treats missing parent as null; require field presence and validate schema strictly. |
+| Draft and scroll restoration | SaveableStateHolder keyed by UUID; verify actual close, rapid changes and recreation. No custom form store needed. |
+| Native lifecycle | Optional AppLifecycle collection updates foreground; host does not independently bind native lifecycle or lock signals. Integrate native owner and foreground task policy. |
+| Rendering failures | Missing renderer throws getValue; validate registry completeness before mount and define error handling. |
+| Memory and immutable snapshots | Count and per-argument bounds exist, but aggregate payload size and defensive snapshot immutability are not guaranteed. Bound aggregate bytes and prevent mutable collection exposure. |
+| Transition and accessibility | Native Dialog/Snackbar used; full page transitions, reduced motion and accessibility acceptance remain unverified. |
+
+## 13. Implementation status and verification
+
+Implemented: core route/instance registry, tab history, modal stack, page-bound prompt queue, precise close, scopes/results, foreground flag, SavedState navigation provider, native UIHost page/dialog/notice rendering. Target requirements in sections 1–8 remain applicable; the gaps above are not completed features. Demo migration is deferred by explicit project decision. No compile, automated concurrency tests or device verification is asserted by this document. Before Stable, execute section 8 acceptance plus mixed-layer, stale-owner, snapshot limit, provider binding, lifecycle and native input tests.
+
+Source locations:
+- android/core/src/main/kotlin/appbase/UIManager.kt
+- android/ui/src/main/java/appbase/ui/UIHost.kt
+- android/core/src/main/kotlin/appbase/SavedState.kt
+- android/core/src/main/kotlin/appbase/Lifecycle.kt
