@@ -13,3 +13,10 @@ Logger evicts oldest records, capacity 1–10000, code length 1–128 and restri
 
 ## Acceptance
 Test eviction, filtering, invalid codes, trace bounds, concurrent writes, crash file failure, handler delegation and restoration. Source modified; tests/build not verified.
+
+## Wake ingress and lifecycle integration
+
+App owns a bounded logger and explicit wake router. Logs are event codes, not arbitrary payloads; callers must not encode secrets in codes. Crash capture is optional and process-wide; it cannot guarantee capture during OOM, native crashes, deadlocks or OS termination. Wake routing is serialized with immediate BUSY on contention; successful IDs are retained until expiry within a bounded capacity. External adapters must authenticate and validate payloads before dispatch. No durable delivery guarantee. Lifecycle events are best effort; consumers reconcile from current phase. UI is not initialized by the core wake router. Handler selection and deduplication run under the router monitor, handler execution outside it while holding the dispatch mutex. Close clears routes and deduplication; in-flight handler is not cancelled and returns CLOSED if close wins before completion. Handler failures propagate; successful IDs are not recorded on failure. Native ingress adapters and lifecycle policies remain future work.
+
+### Wake acceptance
+Verify contention returns BUSY, successful ID deduplication and expiry, handler failure, close during dispatch, and adapter authentication when native adapters become available. Native ingress remains pending; no test execution is claimed here.
