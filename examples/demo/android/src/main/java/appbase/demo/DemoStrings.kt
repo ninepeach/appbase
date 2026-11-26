@@ -105,7 +105,16 @@ private val translations = mapOf(
     "Direct" to listOf("直連", "直连", "直接接続"),
     "Scene" to listOf("場景", "场景", "シーン"),
     "Licenses" to listOf("授權", "许可", "ライセンス"),
-    "Enter a valid HTTPS URL" to listOf("請輸入有效的 HTTPS 網址", "请输入有效的 HTTPS 网址", "有効なHTTPS URLを入力してください")
+    "Enter a valid HTTPS URL" to listOf("請輸入有效的 HTTPS 網址", "请输入有效的 HTTPS 网址", "有効なHTTPS URLを入力してください"),
+    "Move to group" to listOf("移至分組", "移至分组", "グループへ移動"),
+    "UI foreground" to listOf("介面進入前景", "界面进入前台", "画面がフォアグラウンドに移行"),
+    "UI background" to listOf("介面進入背景", "界面进入后台", "画面がバックグラウンドに移行"),
+    "UI resumed" to listOf("介面已恢復", "界面已恢复", "画面を再開"),
+    "UI paused" to listOf("介面已暫停", "界面已暂停", "画面を一時停止"),
+    "Screen turned off" to listOf("螢幕已關閉", "屏幕已关闭", "画面が消灯"),
+    "Device unlocked" to listOf("裝置已解鎖", "设备已解锁", "端末のロックを解除"),
+    "Demo initialized" to listOf("示範已初始化", "演示已初始化", "デモを初期化"),
+    "Simulated connection started" to listOf("模擬連線已啟動", "模拟连接已启动", "模擬接続を開始")
 )
 
 internal fun demoLabel(key:String,language:String):String {

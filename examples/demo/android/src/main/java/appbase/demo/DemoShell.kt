@@ -2,8 +2,6 @@ package appbase.demo
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -87,7 +85,6 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, devic
     LaunchedEffect(notice, language) { if (notice.isNotEmpty()) { queue.notify(demoLabel(notice, language)); notice = "" } }
     fun open(p: String) { nav.push(p) }
     fun back() { val key="$tab:${nav.stack.value.size}"; if(nav.pop()) holder.removeState(key) }
-    fun addLog(s: String) { controller.log(s) }
     BackHandler(stack.size > 1 || tab != 0) { if (nav.stack.value.size > 1) back() else tab = 0 }
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
@@ -109,61 +106,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, devic
                         ScreenHost(holder,"$tab:${stack.size}") { transition ->
                             UIPage(transition) {
                                 when(page) {
-                                    "Home" -> {
-                                        Group {
-                                            Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                                                Text(demoLabel(if(connected) "Connected · simulated" else "Disconnected",language),Modifier.weight(1f))
-                                                Switch(connected,{ if(nodes.any{n->n.id==model.selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
-                                            }
-                                            Item(demoLabel("Global routing",language),demoLabel(routing,language)){open("Routing")}
-                                            Item(demoLabel("Connectivity test",language),demoLabel("Simulate",language)){notice="Simulated test complete";addLog("Connectivity test")}
-                                        }
-                                        var query by rememberSaveable { mutableStateOf("") }
-                                        OutlinedTextField(query,{query=it},label={Text(demoLabel("Search nodes",language))},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                                        var batch by rememberSaveable { mutableStateOf(false) }
-                                        var marked by rememberSaveable { mutableStateOf(arrayListOf<Int>()) }
-                                        var groupFilter by rememberSaveable { mutableStateOf("All") }
-                                        Row(verticalAlignment=Alignment.CenterVertically) {
-                                            TextButton(onClick={batch=!batch;marked = arrayListOf()}){Text(demoLabel(if(batch)"Done" else "Manage",language))}
-                                            TextButton(onClick={controller.sortNodes()}){Text(demoLabel("Sort A–Z",language))}
-                                            TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(demoLabel(groupFilter, language))}
-                                        }
-                                        if(batch) {
-                                            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){if (model.selected in ids) connected=false;controller.deleteNodes(ids);marked = arrayListOf();batch=false}}){Text(demoLabel("Delete selected",language) + " (" + marked.size + ")")}
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Local");marked = arrayListOf()}){Text(demoLabel("Move to Local",language))}
-                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Work");marked = arrayListOf()}){Text(demoLabel("Move to Work",language))}
-                                            }
-                                        }
-                                        Group {
-                                            val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
-                                            if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,demoLabel("No matching nodes",language)) {}
-                                            val visibleIds by rememberUpdatedState(visible.map { it.id })
-                                            visible.forEach { n -> key(n.id) {
-                                                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                                    if(batch) Checkbox(n.id in marked,{marked = ArrayList(if (it) marked + n.id else marked - n.id)}) else RadioButton(model.selected==n.id,{model.selected=n.id;connected=false})
-                                                    Column(Modifier.weight(1f).clickable{model.selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
-                                                    if(batch) {
-                                                        Text("☰", Modifier.padding(12.dp).pointerInput(n.id) {
-                                                            var distance=0f
-                                                            detectDragGesturesAfterLongPress(onDragStart={distance=0f},onDragEnd={distance=0f},onDragCancel={distance=0f}) { change, delta ->
-                                                                change.consume()
-                                                                distance+=delta.y
-                                                                val threshold=48.dp.toPx()
-                                                                if(kotlin.math.abs(distance)>=threshold){
-                                                                    controller.moveNode(n.id, if (distance > 0) 1 else -1, visibleIds)
-                                                                    distance=0f
-                                                                }
-                                                            }
-                                                        })
-                                                        TextButton(onClick={controller.moveNode(n.id,-1,visibleIds)}){Text("↑")}
-                                                        TextButton(onClick={controller.moveNode(n.id,1,visibleIds)}){Text("↓")}
-                                                    } else TextButton(onClick={model.editing=n;open("Node editor")}){Text(demoLabel("Edit",language))}
-                                                }; HorizontalDivider()
-                                            } }
-                                        }
-                                        Group { Item(demoLabel("Subscriptions",language),demoLabel("Manage",language)){open("Subscriptions")};Item(demoLabel("Import node",language)){open("Import")} }
-                                    }
+                                    "Home" -> HomeScreen(model, controller, language, connected, { connected = it }, { notice = it }, ::open, ::confirm, routing)
                                     "Node editor" -> NodeEditor(model,controller,language,{notice=it},{back()},{connected=false},::confirm)
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(demoLabel(it,language),routing==it){routing=it;back()}} }
                                     "Config" -> Group {
