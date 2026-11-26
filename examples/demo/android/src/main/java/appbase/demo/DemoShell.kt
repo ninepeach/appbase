@@ -1,30 +1,24 @@
 package appbase.demo
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.Lifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import appbase.Layer
-import appbase.Navigation
 import appbase.ui.UIGroup as Group
 import appbase.ui.UIRow as Item
 import appbase.ui.UIChoice as Choice
 import appbase.ui.*
 
 private val tabs = listOf("Home", "Config", "Data", "Settings")
-private val pages = listOf("Home","Config","Data","Settings","Node editor","Routing","Subscriptions","Configuration editor","Rules","Traffic","Connections","Logs","Appearance","Language","DNS","Notifications","Privacy","Advanced","Diagnostics","About","Licenses","Import","Onboarding")
+private val pages = setOf("Home","Config","Data","Settings","Node editor","Routing","Subscriptions","Configuration editor","Rules","Traffic","Connections","Logs","Appearance","Language","DNS","Notifications","Privacy","Advanced","Diagnostics","About","Licenses","Import","Onboarding")
 
 @Composable
 internal fun DemoApp(deviceEvent: String?, onDeviceEventHandled: () -> Unit) {
@@ -36,21 +30,10 @@ internal fun DemoApp(deviceEvent: String?, onDeviceEventHandled: () -> Unit) {
 }
 
 @Composable
-private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, deviceEvent: String?, onDeviceEventHandled: () -> Unit) = UIManager.Presentation { queue, snackbar ->
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    val navSaver = Saver<List<Navigation>, ArrayList<String>>(
-        save = { list -> ArrayList(list.map { n -> n.stack.value.joinToString("|") { it.id } }) },
-        restore = { saved -> tabs.mapIndexed { i, root ->
-            Navigation(pages.associateWith { Layer.SCREEN }, root).apply {
-                saved.getOrNull(i)?.split("|")?.drop(1)?.takeWhile { it in pages }?.forEach { push(it) }
-            }
-        } }
-    )
-    val navs = rememberSaveable(saver=navSaver) { tabs.map { Navigation(pages.associateWith { Layer.SCREEN }, it) } }
-    val nav = navs[tab]
-    val stack by nav.stack.collectAsStateWithLifecycle()
-    val page = stack.last().id
-    val holder = rememberSaveableStateHolder()
+private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, deviceEvent: String?, onDeviceEventHandled: () -> Unit) = UIManager.Pages(tabs, pages) { ui, queue, snackbar ->
+    val tab = ui.rootIndex
+    val stack = ui.stack
+    val page = ui.page
     val model = rememberSaveable(saver=DemoModel.saver) { DemoModel() }
     val controller=remember(model){DemoController(model)}
     LaunchedEffect(deviceEvent) {
@@ -83,18 +66,17 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, devic
     fun confirm(title:String, action:()->Unit) { queue.enqueue(ModalRequest(title, demoLabel(title, language), demoLabel("This changes the current demo session only.", language), demoLabel("Confirm", language), demoLabel("Cancel", language), action=action)) }
     var notice by remember { mutableStateOf("") }
     LaunchedEffect(notice, language) { if (notice.isNotEmpty()) { queue.notify(demoLabel(notice, language)); notice = "" } }
-    fun open(p: String) { nav.push(p) }
-    fun back() { val key="$tab:${nav.stack.value.size}"; if(nav.pop()) holder.removeState(key) }
-    BackHandler(stack.size > 1 || tab != 0) { if (nav.stack.value.size > 1) back() else tab = 0 }
+    fun open(page: String) = ui.open(page)
+    fun back() = ui.back()
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             val wide = maxWidth >= 600.dp
             Row(Modifier.fillMaxSize()) {
-                if (wide) NavigationRail { tabs.forEachIndexed { i,t -> NavigationRailItem(selected = tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } }
+                if (wide) NavigationRail { tabs.forEachIndexed { i,t -> NavigationRailItem(selected = tab==i,onClick={ui.selectRoot(i)},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } }
                 Scaffold(
                     modifier = Modifier.weight(1f),
                     snackbarHost = { SnackbarHost(snackbar) },
-                    bottomBar = { if (!wide && stack.size == 1) NavigationBar { tabs.forEachIndexed { i,t -> NavigationBarItem(selected=tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } } }
+                    bottomBar = { if (!wide && stack.size == 1) NavigationBar { tabs.forEachIndexed { i,t -> NavigationBarItem(selected=tab==i,onClick={ui.selectRoot(i)},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } } }
                 ) { padding ->
                     Column(Modifier.fillMaxSize().padding(padding)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -103,7 +85,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, devic
                             if(page=="Home") TextButton(onClick={model.editing=null;open("Node editor")}) { Text(demoLabel("+ Add",language)) }
                             if(page=="Config") TextButton(onClick={model.configEdit="";open("Configuration editor")}) { Text(demoLabel("+ Add",language)) }
                         }
-                        ScreenHost(holder,"$tab:${stack.size}") { transition ->
+                        ui.Content { transition ->
                             UIPage(transition) {
                                 when(page) {
                                     "Home" -> HomeScreen(model, controller, language, connected, { connected = it }, { notice = it }, ::open, ::confirm, routing)

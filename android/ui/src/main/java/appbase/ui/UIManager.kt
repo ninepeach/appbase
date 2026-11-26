@@ -5,7 +5,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import appbase.*
@@ -40,6 +43,46 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
         }
     }
     companion object {
+        /**
+         * Hosts independent page stacks and a shared presentation queue. Keep roots and page IDs
+         * stable across recreation. Page state survives switching roots and is discarded on pop.
+         * Transient presentations are cleared when the host leaves composition.
+         */
+        @Composable fun Pages(
+            roots: List<String>,
+            pages: Set<String>,
+            content: @Composable (PageSession, PresentationQueue, SnackbarHostState) -> Unit,
+        ) = Presentation { queue, snackbar ->
+            require(roots.isNotEmpty() && roots.distinct().size == roots.size && roots.all { it in pages })
+            val saver = remember(roots, pages) {
+                Saver<List<Navigation>, ArrayList<ArrayList<String>>>(
+                    save = { stacks -> ArrayList(stacks.map { nav -> ArrayList(nav.stack.value.map { it.id }) }) },
+                    restore = { saved -> roots.mapIndexed { index, root ->
+                        Navigation(pages.associateWith { Layer.SCREEN }, root).apply {
+                            saved.getOrNull(index)?.takeIf { it.firstOrNull() == root }
+                                ?.drop(1)?.takeWhile { it in pages }?.take(127)?.forEach { push(it) }
+                        }
+                    } },
+                )
+            }
+            val stacks = rememberSaveable(roots, pages, saver = saver) {
+                roots.map { Navigation(pages.associateWith { Layer.SCREEN }, it) }
+            }
+            var selected by rememberSaveable { mutableIntStateOf(0) }
+            val index = selected.takeIf { it in roots.indices } ?: 0
+            val nav = stacks[index]
+            val stack by nav.stack.collectAsState()
+            val holder = rememberSaveableStateHolder()
+            val session = PageSession(index, stack, nav, holder) { next ->
+                require(next in roots.indices) { "Unknown page root index: $next" }
+                selected = next
+            }
+            BackHandler(enabled = stack.size > 1 || index != 0) {
+                if (nav.stack.value.size > 1) session.back() else session.selectRoot(0)
+            }
+            content(session, queue, snackbar)
+        }
+
         /** Owns transient presentations for one mounted composition. */
         @Composable fun Presentation(content: @Composable (PresentationQueue, SnackbarHostState) -> Unit) {
             val queue = remember { PresentationQueue() }
@@ -49,5 +92,26 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
             PresentationHost(queue, snackbar)
         }
         fun mount(activity: ComponentActivity, content: @Composable () -> Unit) { activity.setContent { MaterialTheme { content() } } }
+    }
+
+    /** Main-thread page controls for the active root. Opening and closing copy its bounded stack. */
+    class PageSession internal constructor(
+        val rootIndex: Int,
+        val stack: List<UIEntry>,
+        private val navigation: Navigation,
+        private val holder: SaveableStateHolder,
+        private val select: (Int) -> Unit,
+    ) {
+        val page: String get() = stack.last().id
+        fun selectRoot(index: Int) = select(index)
+        fun open(id: String) { navigation.push(id) }
+        fun back() {
+            val depth = navigation.stack.value.size
+            if (navigation.pop()) holder.removeState("$rootIndex:$depth")
+        }
+
+        @Composable fun Content(content: @Composable (Modifier) -> Unit) {
+            ScreenHost(holder, "$rootIndex:${stack.size}", content)
+        }
     }
 }
