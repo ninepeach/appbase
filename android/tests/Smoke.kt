@@ -1,4 +1,5 @@
 import appbase.*
+import kotlinx.serialization.builtins.serializer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 object Add : Command<Int>
@@ -6,9 +7,11 @@ object Slow : Command<Int>
 object Stream : ChannelCommand<Int>
 object Ping : AppEvent
 class MemorySavedStatePlatform : SavedStatePlatform {
-    var provider: (() -> Map<String, Any>)? = null
-    override fun consume(key: String): Map<String, Any>? = null
-    override fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable {
+    var provider: (() -> Map<String, ByteArray>)? = null
+    override fun checkThread() = Unit
+    override fun fits(values: Map<String, ByteArray>) = true
+    override fun consume(key: String): Map<String, ByteArray>? = null
+    override fun register(key: String, provider: () -> Map<String, ByteArray>): AutoCloseable {
         check(this.provider == null)
         this.provider = provider
         return AutoCloseable { this.provider = null }
@@ -21,26 +24,17 @@ fun main() = runBlocking {
     parent.coroutineContext[Job]!!.cancelAndJoin()
     check(childLifecycle.phase.value == AppPhase.CLOSED)
     check(childLifecycle.foregroundScope() == null)
-    var save: (() -> Map<String, Any>)? = null
-    val platform = object : SavedStatePlatform {
-        override fun consume(key: String): Map<String, Any>? = null
-        override fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable {
-            save = provider
-            return AutoCloseable { save = null }
-        }
+    val platform = MemorySavedStatePlatform()
+    SavedState(platform, maxEntryBytes = 256, maxTotalBytes = 1024).use { saved ->
+        val slot = saved.slot("draft", String.serializer())
+        check(slot.set("ok"))
+        check(!slot.set("x".repeat(1024)))
+        check(slot.get() == "ok")
+        check(checkNotNull(platform.provider).invoke()["draft"] != null)
+        slot.clear()
+        check(slot.get() == null)
     }
-    SavedState(platform, SavedStateLimits(maxEntryBytes = 256, maxScopeBytes = 512, maxTotalBytes = 1024)).use { saved ->
-        val bytes = byteArrayOf(1, 2)
-        check(saved.set("bytes", bytes))
-        bytes[0] = 9
-        check((saved.get("bytes") as ByteArray)[0] == 1.toByte())
-        check(!saved.set("oversized", ByteArray(1024)))
-        saved.register("bad") { error("provider failure") }
-        saved.register("good") { "ok" }
-        val snapshot = checkNotNull(save).invoke()
-        check(snapshot["good"] == "ok" && "bad" !in snapshot)
-    }
-    check(save == null)
+    check(platform.provider == null)
     val key = StateKey<Int>("count")
     val host = App(listOf(object : Plugin {
         override fun install(context: AppContext, commands: CommandService) {
@@ -99,20 +93,7 @@ fun main() = runBlocking {
         check(host.platform.dispatch(wake) == WakeResult.DUPLICATE && calls == 1)
         check(host.platform.dispatch(wake.copy(id = "2", expiresAtMs = 0)) == WakeResult.EXPIRED)
         check(host.platform.dispatch(wake.copy(id = "3", route = "unknown")) == WakeResult.UNKNOWN_ROUTE)
-        val savedPlatform = MemorySavedStatePlatform()
-        val saved = SavedState(savedPlatform)
-        try {
-            check(saved.set("value", 42) && saved.get("value") == 42)
-            val child = saved.scope("screen")
-            check(child.set("name", "detail"))
-            val registration = child.register("count") { 3 }
-            val snapshot = checkNotNull(savedPlatform.provider).invoke()
-            check(snapshot["value"] == 42 && snapshot["screen/name"] == "detail" && snapshot["screen/count"] == 3)
-            registration.close()
-            child.close()
-        } finally { saved.close() }
-        check(savedPlatform.provider == null)
-        println("PASS: saved state values, scopes, providers and cleanup")
+        println("PASS: typed saved state slots and cleanup")
         println("PASS: bounded logs, crash report redaction, wake routing and deduplication")
         println("PASS: lifecycle transitions, scope cancellation, bounded stack")
         println("PASS: navigation, modal priority, root protection")
