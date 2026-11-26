@@ -17,6 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import appbase.Layer
 import appbase.Navigation
+import appbase.ui.UIGroup as Group
+import appbase.ui.UIRow as Item
+import appbase.ui.UIChoice as Choice
+import appbase.ui.*
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,10 +62,11 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     var configEdit by remember { mutableStateOf("") }
     val logs = remember { mutableStateListOf("Demo initialized") }
     val options = remember { mutableStateMapOf<String,Boolean>() }
-    var dialog by remember { mutableStateOf<Pair<String,()->Unit>?>(null) }
+    val queue = remember { PresentationQueue() }
+    fun confirm(title:String, action:()->Unit) { queue.enqueue(ModalRequest(title,title,"This changes the current demo session only.",action=action)) }
     val snackbar = remember { SnackbarHostState() }
     var notice by remember { mutableStateOf("") }
-    LaunchedEffect(notice) { if (notice.isNotEmpty()) { snackbar.showSnackbar(notice); notice = "" } }
+    LaunchedEffect(notice) { if (notice.isNotEmpty()) { queue.notify(notice); notice = "" } }
     fun open(p: String) { nav.push(p) }
     fun back() { nav.pop() }
     fun addLog(s: String) { logs.add(0,s); if(logs.size > 100) logs.removeAt(logs.lastIndex) }
@@ -100,7 +105,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         Text("LOCAL SERVERS",style=MaterialTheme.typography.labelMedium)
                                         Group {
                                             val visible=nodes.filter{it.name.contains(query,true)}
-                                            if(visible.isEmpty()) Text("No matching nodes",Modifier.padding(16.dp))
+                                            if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
                                             visible.forEach { n ->
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                                     RadioButton(selected==n.id,{selected=n.id;connected=false})
@@ -123,7 +128,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         OutlinedTextField(port,{port=it},label={Text("Port")},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
                                         Group { listOf("VLESS","Shadowsocks","Trojan","SOCKS5","HTTP").forEach { p -> Choice(p,protocol==p){protocol=p} } }
                                         Button(enabled=valid,onClick={val n=Node(original?.id ?: nextId++,name.trim(),host.trim(),port,protocol);val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
-                                        if(original!=null) OutlinedButton(onClick={dialog="Delete node?" to {nodes.removeAll{it.id==original.id};if(selected==original.id){connected=false;selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
+                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(selected==original.id){connected=false;selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
                                     }
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
                                     "Config" -> Group {
@@ -136,7 +141,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(body,{body=it},label={Text("Configuration preview")},minLines=8,modifier=Modifier.fillMaxWidth())
                                         Button(enabled=name.isNotBlank(),onClick={if(name !in configs)configs.add(name);activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
-                                        if(configEdit in configs) TextButton(onClick={dialog="Delete configuration?" to {configs.remove(configEdit);if(activeConfig==configEdit)activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
+                                        if(configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(configEdit);if(activeConfig==configEdit)activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
                                     }
                                     "Data" -> {
                                         Group { Item("Upload",if(connected)"12 MB" else "0 MB"){open("Traffic")};Item("Download",if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
@@ -148,7 +153,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         var filter by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(filter,{filter=it},label={Text("Filter logs")},modifier=Modifier.fillMaxWidth())
                                         logs.filter{it.contains(filter,true)}.forEach{Text(it)}
-                                        TextButton(onClick={dialog="Clear logs?" to {logs.clear()}}){Text("Clear")}
+                                        TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text("Clear")}
                                     }
                                     "Settings" -> {
                                         Group { Item("Appearance",appearance){open("Appearance")};Item("Language",language){open("Language")};Item("DNS"){open("DNS")};Item("Notifications"){open("Notifications")};Item("Privacy"){open("Privacy")};Item("Advanced"){open("Advanced")} }
@@ -177,19 +182,6 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                 }
             }
         }
-        dialog?.let{(title,action)->AlertDialog(onDismissRequest={dialog=null},title={Text(title)},text={Text("This changes the current demo session only.")},confirmButton={TextButton(onClick={dialog=null;action()}){Text("Confirm")}},dismissButton={TextButton(onClick={dialog=null}){Text("Cancel")}})}
+        PresentationHost(queue,snackbar)
     }
-}
-
-@Composable private fun Group(content: @Composable ColumnScope.()->Unit) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.45f),RoundedCornerShape(12.dp)).padding(horizontal=12.dp),content=content)
-}
-@Composable private fun Item(title:String,value:String="",action:()->Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick=action).heightIn(min=52.dp).padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
-        Text(title,Modifier.weight(1f));if(value.isNotEmpty())Text(value,color=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.width(8.dp));Text("›")
-    }
-    HorizontalDivider()
-}
-@Composable private fun Choice(title:String,selected:Boolean,action:()->Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick=action),verticalAlignment=Alignment.CenterVertically){RadioButton(selected,action);Text(title)}
 }
