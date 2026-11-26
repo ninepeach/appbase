@@ -166,14 +166,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         configs.forEach { c -> Item(c,if(c==model.activeConfig)"Active" else ""){model.configEdit=c;open("Configuration editor")} }
                                         Item("Rules"){open("Rules")};Item("Import configuration"){open("Import")}
                                     }
-                                    "Configuration editor" -> {
-                                        var name by rememberSaveable { mutableStateOf(model.configEdit) }
-                                        var body by rememberSaveable { mutableStateOf(configBodies[model.configEdit] ?: "# Demo configuration\n[General]\n") }
-                                        OutlinedTextField(name,{name=it},label={Text(demoLabel("Name",language))},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(body,{body=it},label={Text(demoLabel("Configuration preview",language))},minLines=8,modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=name.isNotBlank(),onClick={if(name != model.configEdit && model.configEdit in configs){configs.remove(model.configEdit);configBodies.remove(model.configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;model.activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Save and activate (mock)",language))}
-                                        if(model.configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(model.configEdit);configBodies.remove(model.configEdit);if(model.activeConfig==model.configEdit)model.activeConfig=configs.firstOrNull().orEmpty();back()}}){Text(demoLabel("Delete",language))}
-                                    }
+                                    "Configuration editor" -> ConfigurationEditor(model,language,::back,::confirm)
                                     "Data" -> {
                                         Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
                                         Text("All traffic values are simulated.",style=MaterialTheme.typography.bodySmall)
