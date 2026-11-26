@@ -6,6 +6,32 @@ object Slow : Command<Int>
 object Stream : ChannelCommand<Int>
 object Ping : AppEvent
 fun main() = runBlocking {
+    val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val childLifecycle = AppLifecycle(parent)
+    childLifecycle.transition(AppPhase.FOREGROUND)
+    parent.coroutineContext[Job]!!.cancelAndJoin()
+    check(childLifecycle.phase.value == AppPhase.CLOSED)
+    check(childLifecycle.foregroundScope() == null)
+    var save: (() -> Map<String, Any>)? = null
+    val platform = object : SavedStatePlatform {
+        override fun consume(key: String): Map<String, Any>? = null
+        override fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable {
+            save = provider
+            return AutoCloseable { save = null }
+        }
+    }
+    SavedState(platform, SavedStateLimits(maxEntryBytes = 256, maxScopeBytes = 512, maxTotalBytes = 1024)).use { saved ->
+        val bytes = byteArrayOf(1, 2)
+        check(saved.set("bytes", bytes))
+        bytes[0] = 9
+        check((saved.get("bytes") as ByteArray)[0] == 1.toByte())
+        check(!saved.set("oversized", ByteArray(1024)))
+        saved.register("bad") { error("provider failure") }
+        saved.register("good") { "ok" }
+        val snapshot = checkNotNull(save).invoke()
+        check(snapshot["good"] == "ok" && "bad" !in snapshot)
+    }
+    check(save == null)
     val key = StateKey<Int>("count")
     val host = App(listOf(object : Plugin {
         override fun install(context: AppContext, commands: CommandService) {
@@ -25,12 +51,17 @@ fun main() = runBlocking {
         check(runCatching { client.execute(Slow) }.exceptionOrNull() is TimeoutCancellationException)
         val event = async(start = CoroutineStart.UNDISPATCHED) { host.context.events.observe(Ping::class).first() }; host.context.events.emit(Ping); check(event.await() == Ping)
         val task = launch { client.execute(Slow) }; delay(10); task.cancelAndJoin(); check(task.isCancelled)
-        val nav = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE), UIRoute("dialog", UILayer.MODAL)), mapOf("home" to "home"))
+        val nav = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE), UIRoute("dialog", UILayer.MODAL), UIRoute("overlay", UILayer.OVERLAY)), mapOf("home" to "home"))
         try {
+            val overlay = nav.showOverlay("overlay")
             val detail = nav.openPage("detail")
+            check(overlay !in nav.state.value.visible && nav.isAlive(overlay))
             val dialog = nav.openModal("dialog")
             check(nav.back()); check(!nav.isAlive(dialog)); check(!nav.close(dialog))
-            check(nav.close(detail)); check(!nav.back())
+            val result = checkNotNull(nav.result(detail))
+            check(nav.close(detail)); check(result.await() == UIResult.Cancelled)
+            check(overlay in nav.state.value.visible)
+            check(!nav.back())
             check(runCatching { nav.openPage("missing") }.isFailure)
         } finally { nav.close() }
         val lifecycle = host.lifecycle
