@@ -7,20 +7,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-data class ModalRequest(val key:String,val title:String,val message:String,val confirm:String="Confirm",val cancel:String="Cancel",val action:()->Unit)
+data class ModalRequest(val key:String,val title:String,val message:String,val confirm:String="Confirm",val cancel:String="Cancel",val priority:Int=0,val action:()->Unit)
 class PresentationQueue(private val capacity:Int=32) {
     init { require(capacity>0) }
     private val modals=mutableStateListOf<ModalRequest>()
     private val notices=mutableStateListOf<String>()
-    private val overlays=mutableStateMapOf<Long,String>()
+    private val overlays=mutableStateListOf<Pair<Long,String>>()
     private var sequence=0L
     val modal get()=modals.firstOrNull()
     val notice get()=notices.firstOrNull()
-    val overlay get()=overlays.values.lastOrNull()
+    val overlay get()=overlays.lastOrNull()?.second
     // All methods must be called on the UI thread.
     fun enqueue(request:ModalRequest):Boolean {
         if(modals.any{it.key==request.key} || modals.size>=capacity)return false
-        modals.add(request);return true
+        val index=(1 until modals.size).firstOrNull { modals[it].priority < request.priority } ?: modals.size
+        modals.add(index,request);return true
     }
     fun resolve(accepted:Boolean) {
         if(modals.isEmpty())return
@@ -34,9 +35,9 @@ class PresentationQueue(private val capacity:Int=32) {
     fun consumeNotice(expected:String) { if(notice==expected)notices.removeAt(0) }
     fun beginOverlay(message:String):Long {
         check(overlays.size<capacity)
-        val token=++sequence;overlays[token]=message;return token
+        val token=++sequence;overlays.add(token to message);return token
     }
-    fun endOverlay(token:Long){overlays.remove(token)}
+    fun endOverlay(token:Long){overlays.removeAll { it.first==token }}
     fun clear(){modals.clear();notices.clear();overlays.clear()}
 }
 @Composable fun PresentationHost(queue:PresentationQueue,snackbar:SnackbarHostState) {
