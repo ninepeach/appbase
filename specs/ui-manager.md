@@ -1,6 +1,25 @@
 # UIManager and UIHost — Design specification
 
-Status: approved target architecture; implementation and native proof of concept pending. Existing source has not yet migrated to this design; proposed signatures are not implemented.
+Status: approved target architecture with partial Android source migration. See implementation status below for current APIs and remaining work.
+
+## Implementation status — Android
+
+Partial source migration; not build-verified. The following distinguishes current source from target contracts.
+
+| Feature | Current status |
+|---|---|
+| PAGE rendering | UIHost uses NavDisplay with instance-ID string keys derived from UIManager snapshots; no separate mutable stack. |
+| Native decorators | SaveableState and ViewModelStore decorators are wired per tab; retention and cleanup are unverified. PAGE no longer uses the presentation SaveableStateHolder. |
+| Runtime rejection | Nullable String / Boolean APIs are present for runtime rejection; programming errors remain exceptions. |
+| Blocking presentation | UISnapshot.blocker is implemented and UIHost consumes it directly. Back delegates to UIManager; predictive gesture isolation is unverified. |
+| Toast | UIManager has duration-based toast API; UIHost renders visible toasts. Runtime behavior unverified. |
+| Current page API | openPage(route: String, arguments: Map<String, String> = emptyMap()): String?; UIInstance remains the page model. |
+| Typed routes | openPage(NavKey) and PageEntry are not implemented. |
+| Navigation restoration | Independent bindSavedState exists, but saveNavigation/restoreNavigation still use Map<String, String>; typed versioned NavSnapshot and polymorphic route serialization are pending. |
+| Thread confinement | UIManager still uses synchronized mutations; main-thread-only contract is a target, not established. |
+| Build | Nav3 runtime/UI and lifecycle navigation decorator dependencies are absent from core Gradle configuration. Compilation and native tests are not verified. |
+
+Source-level implementation does not establish functional acceptance.
 
 ## 1. Purpose and boundaries
 
@@ -12,7 +31,7 @@ Android UIManager owns one authoritative back stack per tab and selected tab. Na
 
 Business routes are serializable NavKey implementations without framework instance fields. Internally PageEntry wraps a generated unique ID and a route key. Construct NavEntry with contentKey = entry.id; duplicate business keys remain independent. Retain IDs across restoration. The concrete serialization and NavEntry API must be proven against the chosen stable dependency version before implementation.
 
-## 3. Proposed API and data model
+## 3. Target API and data model
 
 ```kotlin
 @Serializable
@@ -60,7 +79,7 @@ Keep explicit navigation save/restore actions: UIManager owns selected tab and a
 
 ## 7. Dependencies and implementation plan
 
-Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator and Kotlin serialization. Verify exact versions, compileSdk, AGP, Kotlin, Compose and minSdk compatibility through Gradle; do not assume dependency resolution. First build a minimal native proof of concept, then replace existing PAGE rendering/stack and flat navigation schema, retaining presentation logic. Do not introduce a second navigation engine or change iOS implementation to depend on Android.
+Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator and Kotlin serialization. Verify exact versions, compileSdk, AGP, Kotlin, Compose and minSdk compatibility through Gradle; do not assume dependency resolution. PAGE rendering has already been changed at source level. Resolve dependencies and compile the existing integration, then complete typed PAGE entries and replace the flat navigation schema, retaining presentation logic. Do not introduce a second navigation engine or change iOS implementation to depend on Android.
 
 ## 8. Potential problems and mitigations
 
@@ -78,6 +97,6 @@ Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator 
 
 ## 9. Acceptance and source locations
 
-Before migration, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Additionally verify hidden presentation retention across page cover/tab switch, nested ownership cascade, stale/root close rejection, prompt priority/FIFO/dedup/TTL/foreground/owner eligibility, owner removal dropping queued prompts, exact-once Deferred completion and cooperative scope cancellation. Record actual results; no verification is claimed here.
+Before declaring migration complete, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Additionally verify hidden presentation retention across page cover/tab switch, nested ownership cascade, stale/root close rejection, prompt priority/FIFO/dedup/TTL/foreground/owner eligibility, owner removal dropping queued prompts, exact-once Deferred completion and cooperative scope cancellation. Record actual results; no verification is claimed here.
 
-Implementation locations: android/core/src/main/kotlin/appbase/UIManager.kt, UIHost.kt, SavedState.kt, AndroidSavedState.kt. Source migration remains pending.
+Implementation locations: android/core/src/main/kotlin/appbase/UIManager.kt, UIHost.kt, SavedState.kt, AndroidSavedState.kt. Source migration is partial; see implementation status above.
