@@ -121,6 +121,6 @@ Before Stable: compile core and Android UI; test every supported type and defens
 
 UIHost and AndroidSavedState source files now reside in android/core/src/main/kotlin/appbase with package appbase. Core build configuration is Android Library with Compose; all Kotlin sources share src/main/kotlin/appbase; standalone smoke tests explicitly exclude UIHost.kt and AndroidSavedState.kt. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
 
-## UI Runtime V2 integration decision
+## UI Runtime integration decision
 
-V2 retains explicit save/restore of selected tab and per-tab PageEntry lists through SavedStateRegistry with typed polymorphic route serialization, limits and validation. Navigation 3 decorators own page-local state and ViewModel stores. The V1 flat navigation map and page-specific SaveableStateHolder are planned for removal, not yet removed. Generic SavedState remains unchanged. See [UIManager V2](ui-manager.md); native proof and integration remain pending.
+UIManager retains explicit save/restore of selected tab and per-tab PageEntry lists through SavedStateRegistry with typed polymorphic route serialization, limits and validation. Navigation 3 decorators own page-local state and ViewModel stores. The existing flat navigation map and page-specific SaveableStateHolder are planned for removal, not yet removed. Generic SavedState remains unchanged. See [UIManager](ui-manager.md); native proof and integration remain pending.
