@@ -9,7 +9,7 @@ import appbase.ui.UIChoice
 import appbase.ui.UIGroup
 
 @Composable
-internal fun NodeEditor(model: DemoModel, language: String, notify: (String) -> Unit, back: () -> Unit, disconnect: () -> Unit, confirm: (String, () -> Unit) -> Unit) {
+internal fun NodeEditor(model: DemoModel, controller: DemoController, language: String, notify: (String) -> Unit, back: () -> Unit, disconnect: () -> Unit, confirm: (String, () -> Unit) -> Unit) {
     val original = model.editing
     var name by rememberSaveable(original?.id) { mutableStateOf(original?.name.orEmpty()) }
     var host by rememberSaveable(original?.id) { mutableStateOf(original?.host.orEmpty()) }
@@ -23,14 +23,12 @@ internal fun NodeEditor(model: DemoModel, language: String, notify: (String) -> 
     OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text(demoLabel("Port", language)) }, isError = port.toIntOrNull()?.let { it in 1..65535 } != true, modifier = Modifier.fillMaxWidth(), singleLine = true)
     UIGroup { listOf("VLESS", "Shadowsocks", "Trojan", "SOCKS5", "HTTP").forEach { UIChoice(it, protocol == it) { protocol = it } } }
     Button(enabled = valid, onClick = {
-        val node = Node(original?.id ?: model.nextId++, name.trim(), host.trim(), port, protocol, group.trim().ifBlank { "Local" })
-        val index = model.nodes.indexOfFirst { it.id == node.id }
-        if (index < 0) model.nodes.add(node) else model.nodes[index] = node
+        controller.saveNode(original?.id, name, host, port, protocol, group)
         notify("Node saved in memory"); back()
     }, modifier = Modifier.fillMaxWidth()) { Text(demoLabel("Save", language)) }
     if (original != null) OutlinedButton(onClick = { confirm("Delete node?") {
-        model.nodes.removeAll { it.id == original.id }
-        if (model.selected == original.id) { disconnect(); model.selected = model.nodes.firstOrNull()?.id ?: -1 }
+        if (model.selected == original.id) disconnect()
+        controller.deleteNodes(setOf(original.id))
         back()
     } }, modifier = Modifier.fillMaxWidth()) { Text(demoLabel("Delete node", language)) }
 }

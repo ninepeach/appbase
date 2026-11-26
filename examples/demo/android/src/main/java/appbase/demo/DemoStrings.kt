@@ -1,9 +1,6 @@
 package appbase.demo
 
-internal fun demoLabel(key:String,language:String):String {
-    val locale=if(language=="System") java.util.Locale.getDefault().language else language
-    val index=when(locale){"繁體中文"->0;"简体中文","zh"->1;"日本語","ja"->2;else->return key}
-    return mapOf(
+private val translations = mapOf(
 "‹ Back" to listOf("返回","返回","戻る"),
 "+ Add" to listOf("新增","新增","追加"),
 "Save" to listOf("儲存","保存","保存"),
@@ -28,9 +25,7 @@ internal fun demoLabel(key:String,language:String):String {
 "Delete node" to listOf("刪除節點","删除节点","ノード削除"),
 "Sort A–Z" to listOf("名稱排序","名称排序","名前順"),
 "Preview" to listOf("預覽","预览","プレビュー"),
-"No subscriptions" to listOf("沒有訂閱","没有订阅","購読なし"),
 "No matching nodes" to listOf("沒有符合的節點","没有匹配节点","該当ノードなし"),
-"No active connections" to listOf("沒有連線","没有连接","接続なし"),
 "Upload" to listOf("上傳","上传","アップロード"),
 "Download" to listOf("下載","下载","ダウンロード"),
 "System" to listOf("跟隨系統","跟随系统","システム"),
@@ -83,13 +78,38 @@ internal fun demoLabel(key:String,language:String):String {
         "Welcome to Appbase" to listOf("歡迎使用 Appbase","欢迎使用 Appbase","Appbaseへようこそ"),
         "No VPN, networking or persistent storage." to listOf("不含 VPN、網絡或持久化儲存。","不含 VPN、网络或持久化存储。","VPN、通信、永続ストレージはありません。"),
         "All traffic values are simulated." to listOf("所有流量數值均為模擬。","所有流量数值均为模拟。","すべての通信量は模擬値です。"),
-        "No active connections" to listOf("沒有活動連線","没有活动连接","有効な接続はありません"),
-        "No subscriptions" to listOf("沒有訂閱","没有订阅","購読なし"),
         "Delete selected" to listOf("刪除已選","删除所选","選択項目を削除"),
         "Move to Local" to listOf("移至本機","移至本地","ローカルへ移動"),
         "Move to Work" to listOf("移至工作","移至工作","仕事へ移動"),
         "Session traffic · mock" to listOf("工作階段流量（模擬）","会话流量（模拟）","セッション通信量（模擬）"),
         "Day" to listOf("第","第","日"),
         "Dependency license inventory is not yet generated." to listOf("尚未產生依賴授權清單。","尚未生成依赖许可清单。","依存関係のライセンス一覧は未生成です。")
-    )[key]?.get(index) ?: key
+,
+    "Confirm" to listOf("確認", "确认", "確認"),
+    "Cancel" to listOf("取消", "取消", "キャンセル"),
+    "This changes the current demo session only." to listOf("變更僅適用於本次示範。", "变更仅适用于本次演示。", "変更は現在のデモにのみ適用されます。"),
+    "Delete selected nodes?" to listOf("刪除已選節點？", "删除所选节点？", "選択したノードを削除しますか？"),
+    "Delete node?" to listOf("刪除節點？", "删除节点？", "ノードを削除しますか？"),
+    "Delete configuration?" to listOf("刪除配置？", "删除配置？", "設定を削除しますか？"),
+    "Remove subscription?" to listOf("移除訂閱？", "移除订阅？", "購読を削除しますか？"),
+    "Clear logs?" to listOf("清除日誌？", "清除日志？", "ログを消去しますか？"),
+    "Refreshing subscriptions…" to listOf("正在刷新訂閱…", "正在刷新订阅…", "購読を更新中…"),
+    "Simulated refresh complete" to listOf("模擬刷新完成", "模拟刷新完成", "模擬更新が完了しました"),
+    "Simulated test complete" to listOf("模擬測試完成", "模拟测试完成", "模擬テストが完了しました"),
+    "Node saved in memory" to listOf("節點已存於記憶體", "节点已存于内存", "ノードをメモリに保存しました"),
+    "Select a node first" to listOf("請先選擇節點", "请先选择节点", "先にノードを選択してください"),
+    "Simulated connection" to listOf("模擬連線", "模拟连接", "模擬接続"),
+    "In-memory UI state" to listOf("記憶體中的介面狀態", "内存中的界面状态", "メモリ内の画面状態"),
+    "Preview only: no network or import parser" to listOf("僅預覽，無網絡或解析操作", "仅预览，无网络或解析操作", "プレビューのみ。通信や解析は行いません"),
+    "Proxy" to listOf("代理", "代理", "プロキシ"),
+    "Direct" to listOf("直連", "直连", "直接接続"),
+    "Scene" to listOf("場景", "场景", "シーン"),
+    "Licenses" to listOf("授權", "许可", "ライセンス"),
+    "Enter a valid HTTPS URL" to listOf("請輸入有效的 HTTPS 網址", "请输入有效的 HTTPS 网址", "有効なHTTPS URLを入力してください")
+)
+
+internal fun demoLabel(key:String,language:String):String {
+    val locale=if(language=="System") java.util.Locale.getDefault().let { if (it.language == "zh" && (it.script == "Hant" || it.country in setOf("TW", "HK", "MO"))) "繁體中文" else it.language } else language
+    val index=when(locale){"繁體中文"->0;"简体中文","zh"->1;"日本語","ja"->2;else->return key}
+    return translations[key]?.get(index) ?: key
 }

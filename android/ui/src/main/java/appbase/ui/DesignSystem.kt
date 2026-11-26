@@ -25,7 +25,7 @@ object UIMetrics {
 
 @Composable fun UIPage(modifier:Modifier=Modifier, content:@Composable ColumnScope.()->Unit) {
     Box(modifier.fillMaxSize(), contentAlignment=Alignment.TopCenter) {
-        Column(Modifier.fillMaxWidth().widthIn(max=UIMetrics.contentMaxWidth).padding(UISpacing.medium), verticalArrangement=Arrangement.spacedBy(UISpacing.medium), content=content)
+        Column(Modifier.widthIn(max=UIMetrics.contentMaxWidth).fillMaxWidth().verticalScroll(rememberScrollState()).padding(UISpacing.medium), verticalArrangement=Arrangement.spacedBy(UISpacing.medium), content=content)
     }
 }
 

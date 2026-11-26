@@ -14,7 +14,7 @@ data class ModalRequest(val key:String,val title:String,val message:String,val c
  *
  * Modal and notice insertion is O(n) and overlay insertion is O(1); memory is O(capacity).
  * Duplicate modal keys and notice text are rejected. Modal priority never interrupts the
- * currently visible modal. Repeated resolve/end calls are safe. Compose state requires every
+ * currently visible modal. Resolving an empty queue or ending an unknown overlay has no effect. Compose state requires every
  * operation to run on Android's main thread.
  */
 class PresentationQueue(private val capacity:Int=32) {
@@ -46,7 +46,7 @@ class PresentationQueue(private val capacity:Int=32) {
         check(overlays.size<capacity)
         val token=++sequence;overlays.add(token to message);return token
     }
-    fun endOverlay(token:Long):Boolean = overlays.removeAll { it.first==token }
+    fun endOverlay(token:Long) { overlays.removeAll { it.first==token } }
     fun clear(){modals.clear();notices.clear();overlays.clear()}
 }
 @Composable fun PresentationHost(queue:PresentationQueue,snackbar:SnackbarHostState) {

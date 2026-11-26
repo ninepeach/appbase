@@ -30,7 +30,7 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
             (previous - current).forEach { holder.removeState(it.toString()) }
             previous = current
         }
-        BackHandler(enabled = stack.size > 1) { navigation.back() }
+        BackHandler(enabled = stack.drop(1).any { it.layer != Layer.TOAST }) { navigation.back() }
         Box(Modifier.fillMaxSize()) {
             val screen = stack.last { it.layer == Layer.SCREEN }
             ScreenHost(holder,screen.instance.toString()) { transition -> Box(Modifier.fillMaxSize().then(transition)) { renderers.getValue(screen.id)(screen) } }
@@ -40,6 +40,14 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
         }
     }
     companion object {
+        /** Owns transient presentations for one mounted composition. */
+        @Composable fun Presentation(content: @Composable (PresentationQueue, SnackbarHostState) -> Unit) {
+            val queue = remember { PresentationQueue() }
+            val snackbar = remember { SnackbarHostState() }
+            DisposableEffect(queue) { onDispose { queue.clear() } }
+            content(queue, snackbar)
+            PresentationHost(queue, snackbar)
+        }
         fun mount(activity: ComponentActivity, content: @Composable () -> Unit) { activity.setContent { MaterialTheme { content() } } }
     }
 }
