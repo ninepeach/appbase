@@ -3,12 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 KLIB="$(cd "$(dirname "$(command -v kotlinc)")/../lib" && pwd)"
 OUT=$(mktemp -d); trap 'rm -rf "$OUT"' EXIT
+MAVEN=https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx
+fetch() { curl --fail --silent --show-error --location "$MAVEN/$1/$2/$1-$2.jar" -o "$OUT/$1.jar"; echo "$OUT/$1.jar"; }
+# kotlinc distributions do not always bundle coroutines (the GitHub runner's does not).
+if [ -f "$KLIB/kotlinx-coroutines-core-jvm.jar" ]; then CP="$KLIB/kotlinx-coroutines-core-jvm.jar"
+else CP="$(fetch kotlinx-coroutines-core-jvm 1.10.2)"; fi
 SER_VERSION=1.8.1
-CP="$KLIB/kotlinx-coroutines-core-jvm.jar"
 for artifact in kotlinx-serialization-core-jvm kotlinx-serialization-json-jvm; do
-    jar="$OUT/$artifact.jar"
-    curl --fail --silent --show-error --location "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/$artifact/$SER_VERSION/$artifact-$SER_VERSION.jar" -o "$jar"
-    CP="$CP:$jar"
+    CP="$CP:$(fetch "$artifact" "$SER_VERSION")"
 done
 SOURCES=()
 for source in core/src/main/kotlin/appbase/*.kt; do
