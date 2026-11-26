@@ -16,6 +16,7 @@ class StateStore(private val capacity: Int = 256) {
         (values[key] ?: error("Unknown state ${key.name}")) as MutableStateFlow<T>
     fun <T> observe(key: StateKey<T>): StateFlow<T> = get(key).asStateFlow()
     fun <T> set(key: StateKey<T>, value: T) { get(key).value = value }
+    /** Atomic CAS update; transform may run repeatedly and must be side-effect free. */
     fun <T> update(key: StateKey<T>, transform: (T) -> T) { get(key).update(transform) }
     @Synchronized fun size(): Int = values.size
 }
