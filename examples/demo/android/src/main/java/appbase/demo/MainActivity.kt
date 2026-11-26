@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Node(val id: Int, val name: String, val host: String, val port: String, val protocol: String)
+private data class Node(val id: Int, val name: String, val host: String, val port: String, val protocol: String, val group: String = "Local")
 private val tabs = listOf("Home", "Config", "Data", "Settings")
 private val pages = listOf("Home","Config","Data","Settings","Node editor","Routing","Subscriptions","Configuration editor","Rules","Traffic","Connections","Logs","Appearance","Language","DNS","Notifications","Privacy","Advanced","Diagnostics","About","Licenses","Import","Onboarding")
 
@@ -51,6 +51,8 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     val page = stack.last().id
     val holder = rememberSaveableStateHolder()
     val nodes = remember { mutableStateListOf(Node(1,"Tokyo 01","tokyo.example","443","VLESS"),Node(2,"Hong Kong 01","hk.example","443","Shadowsocks"),Node(3,"Singapore 01","sg.example","443","Trojan")) }
+    val configBodies = remember { mutableStateMapOf<String,String>() }
+    val subscriptions = remember { mutableStateListOf<String>() }
     var nextId by remember { mutableIntStateOf(4) }
     var selected by remember { mutableIntStateOf(1) }
     var editing by remember { mutableStateOf<Node?>(null) }
@@ -102,14 +104,22 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         }
                                         var query by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(query,{query=it},label={Text("Search nodes")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                                        Text("LOCAL SERVERS",style=MaterialTheme.typography.labelMedium)
+                                        var batch by rememberSaveable { mutableStateOf(false) }
+                                        val marked = remember { mutableStateListOf<Int>() }
+                                        var groupFilter by rememberSaveable { mutableStateOf("All") }
+                                        Row(verticalAlignment=Alignment.CenterVertically) {
+                                            TextButton(onClick={batch=!batch;marked.clear()}){Text(if(batch)"Done" else "Manage")}
+                                            TextButton(onClick={val sorted=nodes.sortedBy{it.name};nodes.clear();nodes.addAll(sorted)}){Text("Sort A–Z")}
+                                            TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(groupFilter)}
+                                        }
+                                        if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(selected in ids){connected=false;selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
                                         Group {
-                                            val visible=nodes.filter{it.name.contains(query,true)}
+                                            val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
                                             if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
                                             visible.forEach { n ->
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                                    RadioButton(selected==n.id,{selected=n.id;connected=false})
-                                                    Column(Modifier.weight(1f).clickable{selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
+                                                    if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(selected==n.id,{selected=n.id;connected=false})
+                                                    Column(Modifier.weight(1f).clickable{selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
                                                     TextButton(onClick={editing=n;open("Node editor")}){Text("Edit")}
                                                 }; HorizontalDivider()
                                             }
@@ -121,13 +131,15 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         var name by rememberSaveable { mutableStateOf(original?.name.orEmpty()) }
                                         var host by rememberSaveable { mutableStateOf(original?.host.orEmpty()) }
                                         var port by rememberSaveable { mutableStateOf(original?.port ?: "443") }
+                                        var group by rememberSaveable { mutableStateOf(original?.group ?: "Local") }
+                                        OutlinedTextField(group,{group=it},label={Text("Group")},modifier=Modifier.fillMaxWidth())
                                         var protocol by rememberSaveable { mutableStateOf(original?.protocol ?: "VLESS") }
                                         val valid=name.isNotBlank()&&host.isNotBlank()&&port.toIntOrNull()?.let{it in 1..65535}==true
                                         OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(host,{host=it},label={Text("Server address")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(port,{port=it},label={Text("Port")},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
                                         Group { listOf("VLESS","Shadowsocks","Trojan","SOCKS5","HTTP").forEach { p -> Choice(p,protocol==p){protocol=p} } }
-                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: nextId++,name.trim(),host.trim(),port,protocol);val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
+                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
                                         if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(selected==original.id){connected=false;selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
                                     }
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
@@ -137,11 +149,11 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     }
                                     "Configuration editor" -> {
                                         var name by rememberSaveable { mutableStateOf(configEdit) }
-                                        var body by rememberSaveable { mutableStateOf("# Demo configuration\n[General]\n") }
+                                        var body by rememberSaveable { mutableStateOf(configBodies[configEdit] ?: "# Demo configuration\n[General]\n") }
                                         OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(body,{body=it},label={Text("Configuration preview")},minLines=8,modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=name.isNotBlank(),onClick={if(name !in configs)configs.add(name);activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
-                                        if(configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(configEdit);if(activeConfig==configEdit)activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
+                                        Button(enabled=name.isNotBlank(),onClick={if(name != configEdit && configEdit in configs){configs.remove(configEdit);configBodies.remove(configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
+                                        if(configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(configEdit);configBodies.remove(configEdit);if(activeConfig==configEdit)activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
                                     }
                                     "Data" -> {
                                         Group { Item("Upload",if(connected)"12 MB" else "0 MB"){open("Traffic")};Item("Download",if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
@@ -169,7 +181,15 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     "About" -> { Text("Appbase Demo",style=MaterialTheme.typography.headlineMedium);Text("Native Compose UI prototype. No VPN, networking or persistent storage.");Group{Item("Open source licenses"){open("Licenses")}} }
                                     "Licenses" -> Text("Dependency license inventory is not yet generated.")
                                     "Rules" -> Group { listOf("DOMAIN,example.org,PROXY","GEOIP,LOCAL,DIRECT","FINAL,PROXY").forEach{Text(it,Modifier.padding(vertical=12.dp))} }
-                                    "Subscriptions","Import" -> {
+                                    "Subscriptions" -> {
+                                        var url by rememberSaveable { mutableStateOf("") }
+                                        if(subscriptions.isEmpty()) UIContent(ContentStatus.EMPTY,"No subscriptions") {}
+                                        subscriptions.forEach { address -> Group { Item(address,"Remove"){confirm("Remove subscription?"){subscriptions.remove(address)}} } }
+                                        OutlinedTextField(url,{url=it},label={Text("Subscription URL")},modifier=Modifier.fillMaxWidth())
+                                        Button(enabled=url.startsWith("https://")&&url !in subscriptions,onClick={subscriptions.add(url);url=""}){Text("Add")}
+                                        Button(enabled=subscriptions.isNotEmpty(),onClick={notice="Simulated refresh complete"}){Text("Refresh all")}
+                                    }
+                                    "Import" -> {
                                         var input by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(input,{input=it},label={Text(if(page=="Import")"Paste configuration or URI" else "Subscription URL")},modifier=Modifier.fillMaxWidth())
                                         Button(enabled=input.isNotBlank(),onClick={notice="Preview only: no network or import parser";back()}){Text("Preview")}
