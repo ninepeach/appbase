@@ -2,12 +2,14 @@ package appbase
 
 import android.os.Bundle
 import android.os.Parcel
+import android.os.Looper
 import androidx.savedstate.SavedStateRegistry
 
 /** Main-thread native adapter. No custom persistence. */
 class AndroidSavedState(private val registry: SavedStateRegistry,
     private val maxBytes: Int = 131072) : SavedStatePlatform {
     init { require(maxBytes > 0) }
+    private fun checkThread() { check(Looper.myLooper() == Looper.getMainLooper()) { "Saved state requires main thread" } }
     private fun fits(bundle: Bundle): Boolean {
         val parcel = Parcel.obtain()
         return try { parcel.writeBundle(bundle); parcel.dataSize() <= maxBytes }
@@ -40,13 +42,19 @@ class AndroidSavedState(private val registry: SavedStateRegistry,
             else -> error("Invalid saved state type")
         }
     }
-    override fun consume(key: String): Map<String, Any>? =
-        registry.consumeRestoredStateForKey(key)?.takeIf { fits(it) }?.let { bundle ->
-            bundle.keySet().associateWith { k ->
-                decode(requireNotNull(bundle.getBundle(k)), 0)
-            }
+    override fun consume(key: String): Map<String, Any>? {
+        checkThread()
+        val bundle = registry.consumeRestoredStateForKey(key) ?: return null
+        if (!fits(bundle)) return null
+        val result = linkedMapOf<String, Any>()
+        for (k in bundle.keySet()) {
+            runCatching { decode(requireNotNull(bundle.getBundle(k)), 0) }
+                .onSuccess { result[k] = it }
         }
+        return result
+    }
     override fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable {
+        checkThread()
         registry.registerSavedStateProvider(key) {
             val result = Bundle()
             provider().forEach { (k, v) ->
@@ -55,6 +63,10 @@ class AndroidSavedState(private val registry: SavedStateRegistry,
             }
             result
         }
-        return AutoCloseable { registry.unregisterSavedStateProvider(key) }
+        var closed = false
+        return AutoCloseable {
+            checkThread()
+            if (!closed) { registry.unregisterSavedStateProvider(key); closed = true }
+        }
     }
 }
