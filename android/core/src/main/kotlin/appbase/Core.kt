@@ -15,26 +15,6 @@ class StateKey<T>(val name: String)
 class Capability(private val allowed: Set<String>) {
     fun check(id: String) { if (id !in allowed) throw SecurityException("Denied: $id") }
 }
-class EventBus {
-    private val bus = MutableSharedFlow<AppEvent>(extraBufferCapacity = 64)
-    suspend fun emit(event: AppEvent) = bus.emit(event)
-    fun tryEmit(event: AppEvent): Boolean = bus.tryEmit(event)
-    fun <T : AppEvent> observe(type: KClass<T>): Flow<T> = bus.filter { type.isInstance(it) }.map { @Suppress("UNCHECKED_CAST") (it as T) }
-}
-class StateStore {
-    private val values = mutableMapOf<StateKey<*>, MutableStateFlow<*>>()
-    @Synchronized fun <T> declare(key: StateKey<T>, initial: T) { check(key !in values); values[key] = MutableStateFlow(initial) }
-    @Suppress("UNCHECKED_CAST") @Synchronized private fun <T> get(key: StateKey<T>) = (values[key] ?: error("Unknown state ${key.name}")) as MutableStateFlow<T>
-    fun <T> observe(key: StateKey<T>): StateFlow<T> = get(key).asStateFlow()
-    @Synchronized fun <T> update(key: StateKey<T>, transform: (T) -> T) { val flow = get(key); flow.value = transform(flow.value) }
-}
-data class Trace(val sequence: Long, val command: String, val phase: String)
-class Inspector {
-    private val seq = AtomicLong()
-    private val entries = MutableStateFlow<List<Trace>>(emptyList())
-    val traces = entries.asStateFlow()
-    @Synchronized internal fun record(id: String, phase: String) { entries.value = (entries.value + Trace(seq.incrementAndGet(), id, phase)).takeLast(100) }
-}
 data class Execution(val timeoutMs: Long = 30_000, val serial: Boolean = false, val queueTimeoutMs: Long = 30_000) { init { require(timeoutMs > 0 && queueTimeoutMs > 0) } }
 class QueueFull : IllegalStateException("Command queue full")
 class AppContext internal constructor(val events: EventBus, val state: StateStore, val inspector: Inspector, val scope: CoroutineScope)
