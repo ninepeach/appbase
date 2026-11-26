@@ -111,7 +111,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         return output
     }
 
-    @Synchronized fun restoreNavigation(saved: Map<String, String>): Boolean {
+    fun restoreNavigation(saved: Map<String, String>): Boolean { return mutate { retired ->
         if (closed || entries.size != rootIds.size || saved["version"] != "1") return false
         val tab = saved["selected"] ?: return false
         if (tab !in roots) return false
@@ -146,7 +146,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
             restored[id] = UIInstance(id, route, root, parent, emptyMap())
         }
         if (lastPage.keys != roots.keys) return false
-        entries.keys.toList().forEach { remove(it, UIResult.Cancelled) }
+        entries.keys.toList().forEach { remove(it, UIResult.Cancelled, retired) }
         rootIds.clear()
         for (item in restored.values) {
             add(item.route.name, item.tab, item.parent, item.arguments, item.route.layer, item.id)
@@ -155,7 +155,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         selected = tab
         publish()
         return true
-    }
+    } }
     @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String {
         check(presentations().none { it.route.blocking }) { "Close blocking presentation first" }
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
@@ -213,37 +213,46 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         if (removed) publish()
         return removed
     }
-    private fun remove(id: String, result: UIResult) {
-        entries.values.filter { it.parent == id }.map { it.id }.asReversed().forEach { remove(it, UIResult.Cancelled) }
+    private data class Retired(val job: Job?, val deferred: CompletableDeferred<UIResult>?, val result: UIResult)
+    private inline fun <T> mutate(block: (MutableList<Retired>) -> T): T {
+        val retired = mutableListOf<Retired>()
+        try { return synchronized(this) { block(retired) } }
+        finally {
+            retired.forEach { item ->
+                try { item.job?.cancel() } finally { item.deferred?.complete(item.result) }
+            }
+        }
+    }
+    private fun remove(id: String, result: UIResult, retired: MutableList<Retired>) {
+        entries.values.filter { it.parent == id }.map { it.id }.asReversed().forEach { remove(it, UIResult.Cancelled, retired) }
         entries.remove(id)
         activeKeys.remove(id)
         prompts.removeAll { it.owner == id }
-        jobs.remove(id)?.cancel()
-        results.remove(id)?.complete(result)
+        retired.add(Retired(jobs.remove(id), results.remove(id), result))
     }
-    @Synchronized fun close(id: String, result: UIResult = UIResult.Cancelled): Boolean {
+    fun close(id: String, result: UIResult = UIResult.Cancelled): Boolean { return mutate { retired ->
         if (id in rootIds || id !in entries) return false
-        remove(id, result); promote(); publish(); return true
-    }
-    @Synchronized fun back(): Boolean {
+        remove(id, result, retired); promote(); publish(); return true
+    } }
+    fun back(): Boolean { return mutate { retired ->
         if (closed) return false
         val target = presentations().sortedBy { it.route.layer.ordinal }.lastOrNull { it.route.blocking }
             ?: page()
         if (target.id in rootIds) return false
         if (!target.route.dismissible) return true
-        return close(target.id)
-    }
+        remove(target.id, UIResult.Cancelled, retired); promote(); publish(); return true
+    } }
     @Synchronized fun selectRoot(tab: String) {
         check(!closed); require(tab in roots)
         if (presentations().any { it.route.blocking }) return
         selected = tab; promote(); publish()
     }
-    @Synchronized fun popModal(): Boolean {
+    fun popModal(): Boolean { return mutate { retired ->
         if (closed) return false
         val top = modal() ?: return false
         if (!top.route.dismissible) return false
-        return close(top.id)
-    }
+        remove(top.id, UIResult.Cancelled, retired); promote(); publish(); return true
+    } }
     @Synchronized fun canGoBack(): Boolean {
         if (closed) return false
         return presentations().any { it.route.blocking } || page().id !in rootIds
