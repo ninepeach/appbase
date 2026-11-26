@@ -1,6 +1,6 @@
-# UIManager and UIHost — V2 design specification
+# UIManager and UIHost — Design specification
 
-Status: approved target architecture; implementation and native proof of concept pending. The existing Android implementation is V1. Its source-level baseline is preserved in [UIManager V1](ui-manager-v1.md). Do not treat V2 signatures as implemented.
+Status: approved target architecture; implementation and native proof of concept pending. Existing source has not yet migrated to this design; proposed signatures are not implemented.
 
 ## 1. Purpose and boundaries
 
@@ -36,11 +36,11 @@ NavDisplay onBack delegates to UIManager.back (adapt return type if necessary). 
 
 ## 6. State and restoration
 
-Keep explicit navigation save/restore actions: UIManager owns selected tab and all PageEntry lists, so register an aggregate SavedStateRegistry provider and restore before mounting. Use Kotlin serialization with explicit polymorphic route serializers; do not retain V1 flat field schema. A small versioned envelope, byte/count limits, route/ID/root validation and safe fallback remain necessary. Never persist callbacks, jobs, Deferreds or transient prompts/modals by default. Recreate scopes for restored IDs. Page-local rememberSaveable and ViewModelStore ownership use official decorators keyed by instance ID; only explicitly saved ViewModel data survives process death. Each tab must retain independent decorator ownership even when not displayed; prove this using the official multiple-back-stack recipe. Generic SavedState remains available for non-navigation state. No second page SaveableStateHolder.
+Keep explicit navigation save/restore actions: UIManager owns selected tab and all PageEntry lists, so register an aggregate SavedStateRegistry provider and restore before mounting. Use Kotlin serialization with explicit polymorphic route serializers; do not retain existing flat field schema. A small versioned envelope, byte/count limits, route/ID/root validation and safe fallback remain necessary. Never persist callbacks, jobs, Deferreds or transient prompts/modals by default. Recreate scopes for restored IDs. Page-local rememberSaveable and ViewModelStore ownership use official decorators keyed by instance ID; only explicitly saved ViewModel data survives process death. Each tab must retain independent decorator ownership even when not displayed; prove this using the official multiple-back-stack recipe. Generic SavedState remains available for non-navigation state. No second page SaveableStateHolder.
 
 ## 7. Dependencies and implementation plan
 
-Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator and Kotlin serialization. Verify exact versions, compileSdk, AGP, Kotlin, Compose and minSdk compatibility through Gradle; do not assume dependency resolution. First build a minimal native proof of concept, then replace V1 PAGE rendering/stack and flat navigation schema, retaining presentation logic. Do not introduce a second navigation engine or change iOS implementation to depend on Android.
+Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator and Kotlin serialization. Verify exact versions, compileSdk, AGP, Kotlin, Compose and minSdk compatibility through Gradle; do not assume dependency resolution. First build a minimal native proof of concept, then replace existing PAGE rendering/stack and flat navigation schema, retaining presentation logic. Do not introduce a second navigation engine or change iOS implementation to depend on Android.
 
 ## 8. Potential problems and mitigations
 
@@ -58,6 +58,6 @@ Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator 
 
 ## 9. Acceptance and source locations
 
-Before replacing V1, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Record actual results; no verification is claimed here.
+Before migration, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Record actual results; no verification is claimed here.
 
-Implementation locations: android/core/src/main/kotlin/appbase/UIManager.kt, UIHost.kt, SavedState.kt, AndroidSavedState.kt. V1 remains current source until migration is completed.
+Implementation locations: android/core/src/main/kotlin/appbase/UIManager.kt, UIHost.kt, SavedState.kt, AndroidSavedState.kt. Source migration remains pending.
