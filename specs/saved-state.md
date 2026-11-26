@@ -114,9 +114,9 @@ Before Stable: compile core and Android UI; test every supported type and defens
 ## 8. Source locations
 
 - android/core/src/main/kotlin/appbase/SavedState.kt
-- android/core/src/main/java/appbase/AndroidSavedState.kt
+- android/core/src/main/kotlin/appbase/AndroidSavedState.kt
 - android/core/src/main/kotlin/appbase/UIManager.kt
 
 ## Android Core migration status
 
-UIHost and AndroidSavedState source files now reside in android/core/src/main/java/appbase with package appbase. Core build configuration is Android Library with Compose; pure Kotlin sources remain under src/main/kotlin for standalone smoke tests. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
+UIHost and AndroidSavedState source files now reside in android/core/src/main/kotlin/appbase with package appbase. Core build configuration is Android Library with Compose; all Kotlin sources share src/main/kotlin/appbase; standalone smoke tests explicitly exclude UIHost.kt and AndroidSavedState.kt. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
