@@ -57,6 +57,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     val page = stack.last().id
     val holder = rememberSaveableStateHolder()
     val model = rememberSaveable(saver=DemoModel.saver) { DemoModel() }
+    val controller=remember(model){DemoController(model)}
     val nodes=model.nodes
     val configs=model.configs
     val configBodies=model.configBodies
@@ -74,7 +75,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     LaunchedEffect(notice) { if (notice.isNotEmpty()) { queue.notify(notice); notice = "" } }
     fun open(p: String) { nav.push(p) }
     fun back() { val key="$tab:${nav.stack.value.last().instance}"; if(nav.pop()) holder.removeState(key) }
-    fun addLog(s: String) { logs.add(0,s); if(logs.size > 100) logs.removeAt(logs.lastIndex) }
+    fun addLog(s: String) { controller.log(s) }
     BackHandler(stack.size > 1 || tab != 0) { if (nav.stack.value.size > 1) back() else tab = 0 }
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
@@ -114,7 +115,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         var groupFilter by rememberSaveable { mutableStateOf("All") }
                                         Row(verticalAlignment=Alignment.CenterVertically) {
                                             TextButton(onClick={batch=!batch;marked.clear()}){Text(if(batch)"Done" else "Manage")}
-                                            TextButton(onClick={val sorted=nodes.sortedBy{it.name};nodes.clear();nodes.addAll(sorted)}){Text("Sort A–Z")}
+                                            TextButton(onClick={controller.sortNodes()}){Text("Sort A–Z")}
                                             TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(groupFilter)}
                                         }
                                         if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(model.selected in ids){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
@@ -140,8 +141,8 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                                 }
                                                             }
                                                         })
-                                                        TextButton(onClick={val i=nodes.indexOf(n);if(i>0){nodes.removeAt(i);nodes.add(i-1,n)}}){Text("↑")}
-                                                        TextButton(onClick={val i=nodes.indexOf(n);if(i>=0&&i<nodes.lastIndex){nodes.removeAt(i);nodes.add(i+1,n)}}){Text("↓")}
+                                                        TextButton(onClick={controller.moveNode(n.id,-1)}){Text("↑")}
+                                                        TextButton(onClick={controller.moveNode(n.id,1)}){Text("↓")}
                                                     } else TextButton(onClick={model.editing=n;open("Node editor")}){Text("Edit")}
                                                 }; HorizontalDivider()
                                             } }
