@@ -84,7 +84,9 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     /** Attach once per native owner, before rendering. Caller closes registration on detach. */
     fun bindSavedState(savedState: SavedState, key: String = "appbase.navigation"): AutoCloseable {
         val saved = runCatching { savedState.get(key) }.getOrNull()
-        if (saved != null) restoreNavigation(saved)
+        if (saved is Map<*, *> && saved.all { it.key is String && it.value is String }) {
+            restoreNavigation(saved.entries.associate { (k, v) -> k as String to v as String })
+        }
         return savedState.register(key) { saveNavigation() }
     }
 
