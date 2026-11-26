@@ -211,6 +211,10 @@ Implemented: core route/instance registry, tab history, modal stack, page-bound 
 
 Source locations:
 - android/core/src/main/kotlin/appbase/UIManager.kt
-- android/ui/src/main/java/appbase/ui/UIHost.kt (current; target: Core)
+- android/core/src/main/java/appbase/UIHost.kt
 - android/core/src/main/kotlin/appbase/SavedState.kt
 - android/core/src/main/kotlin/appbase/Lifecycle.kt
+
+## Android Core migration status
+
+UIHost and AndroidSavedState source files now reside in android/core/src/main/java/appbase with package appbase. Core build configuration is Android Library with Compose; pure Kotlin sources remain under src/main/kotlin for standalone smoke tests. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
