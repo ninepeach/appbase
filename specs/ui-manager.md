@@ -30,6 +30,26 @@ openPage(key: NavKey): String; selectRoot(tab: String); back(): Boolean; close(i
 
 Retain OVERLAY, MODAL, TOAST and SYSTEM layers. Modal parent/child stack is separate from independent prompt queue. Queue is bounded, priority ordered with FIFO ties, deduplicated and expiry checked; unrelated prompts do not interrupt a modal chain. Page-owned presentations and scopes close when their PageEntry is removed; nested modal closure cascades. Covered or inactive tabs retain live page state and owned resources according to foreground policy. Nonblocking notices do not steal input. Nondismissible blockers consume back. Use native dialog, snackbar and accessibility/focus facilities. No polling thread.
 
+### 4.1 Ownership and visibility
+
+Every modal, overlay and system presentation has an immutable parent instance ID, resolving through a live parent chain to its owning page. Ordinary modal and overlay openings attach to the current modal or current page; system presentations may attach to the current page or modal according to their policy. No orphan or cross-tab parent is allowed. Only presentations whose owning page is the selected tab's top page are eligible for display. Covering a page or switching tabs hides its presentations without destroying their logical instances, drafts, results or scopes. Returning to that page restores eligible presentations. Visibility, input ownership, foreground and logical lifetime are distinct. Only the highest eligible blocker owns input; hidden descendants of a covered modal must not receive input. Page removal cascades to all owned presentations.
+
+### 4.2 Independent prompt queue
+
+`enqueueModal(route, key, priority = 0, ttlMs = 60_000, arguments = emptyMap()): String?` is the existing admission contract; typed presentation arguments may evolve independently of PAGE NavKey. A prompt belongs to the current page, not the current modal. Deduplicate by key across queued and promoted live prompts, reject admission when full, and use a monotonic clock for TTL. Select highest priority among eligible prompts, FIFO for ties. Promote only while foreground, owner is selected tab's top page, no blocking presentation is active, and instance capacity is available. Recheck on enqueue, close, navigation, foreground transition and explicit refresh; expired prompts cannot promote. Closing an owner discards its queued prompts. Promotion preserves request ID; closing the promoted instance releases its deduplication key. No dedicated polling thread. Queue acceptance is not proof of display or completion.
+
+### 4.3 Close, result and resource lifetime
+
+`close(id, result = UIResult.Cancelled): Boolean` closes the exact live non-root instance and all descendants, never an unrelated instance. Stale IDs and protected roots return false. Descendants complete with Cancelled; the explicitly closed target receives the supplied result (Cancelled by default). Remove ownership records, pending prompts and deduplication records atomically before cancelling jobs or completing Deferreds, so callbacks cannot observe a half-closed tree. Each live instance exposes `scope(id): CoroutineScope?` and `result(id): Deferred<UIResult>?`. Capture the Deferred before closing; after removal lookup returns null. Scope cancellation is cooperative and does not imply synchronous termination. Logical close is independent of animation or composition disposal.
+
+```kotlin
+val id = ui.openModal("confirm")
+val pending = requireNotNull(ui.result(id))
+val result = pending.await()
+```
+
+A caller awaiting a modal result must use a scope that outlives the modal itself. Cancellation of the awaiting caller does not by itself close the modal. Back consumes nondismissible blockers without removing them; at an unblocked root it returns false. A successful committed back closes exactly one target and its descendants. Repeated or delayed close requests cannot affect a newly opened instance.
+
 ## 5. Back and predictive back
 
 NavDisplay onBack delegates to UIManager.back (adapt return type if necessary). UIManager handles eligible SYSTEM, MODAL, blocking OVERLAY, then PAGE in that order; no double consumption. UIHost must register higher-priority native back handling for blocking presentations and suppress underlying page predictive preview while blocked. A cancelled gesture changes no stack, results or scopes; a committed gesture closes exactly one eligible instance. Page pop updates the authoritative stack and cancels owned work immediately, independently of exit animation. Test gesture cancellation and blocker changes during a gesture.
@@ -58,6 +78,6 @@ Target stable Navigation 3 runtime/UI, lifecycle ViewModel navigation decorator 
 
 ## 9. Acceptance and source locations
 
-Before migration, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Record actual results; no verification is claimed here.
+Before migration, prove duplicate-key isolation, all-tab draft/scroll/ViewModel retention, pop disposal, Activity recreation, actual process-death restore of IDs and saved data, predictive back cancellation/commit, modal interception and owner cascade. Run JVM tests, Android assembleDebug and emulator/device tests. Additionally verify hidden presentation retention across page cover/tab switch, nested ownership cascade, stale/root close rejection, prompt priority/FIFO/dedup/TTL/foreground/owner eligibility, owner removal dropping queued prompts, exact-once Deferred completion and cooperative scope cancellation. Record actual results; no verification is claimed here.
 
 Implementation locations: android/core/src/main/kotlin/appbase/UIManager.kt, UIHost.kt, SavedState.kt, AndroidSavedState.kt. Source migration remains pending.
