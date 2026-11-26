@@ -37,9 +37,11 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val results = mutableMapOf<String, CompletableDeferred<UIResult>>()
     private val prompts = mutableListOf<UIPrompt>()
     private val activeKeys = mutableMapOf<String, String>()
+    private val notices = MutableStateFlow<List<String>>(emptyList())
+    val notifications = notices.asStateFlow()
     private val rootJob = SupervisorJob()
     private val context = dispatcher + rootJob
-    private var selected = roots.keys.first()
+    private var selected = roots.keys.firstOrNull() ?: error("At least one root is required")
     private var foreground = true
     private var closed = false
     init {
@@ -92,6 +94,14 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String {
         val item = add(route, selected, modal()?.id ?: page().id, arguments, UILayer.OVERLAY)
         publish(); return item.id
+    }
+    @Synchronized fun notify(message: String): Boolean {
+        if (closed || message.isBlank() || message.length > 2048 || notices.value.size >= queueCapacity) return false
+        notices.value = notices.value + message
+        return true
+    }
+    @Synchronized fun consumeNotice(message: String) {
+        if (notices.value.firstOrNull() == message) notices.value = notices.value.drop(1)
     }
     @Synchronized fun toast(route: String, arguments: Map<String, String> = emptyMap()): String {
         val item = add(route, selected, page().id, arguments, UILayer.TOAST)
@@ -158,6 +168,10 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         if (!top.route.dismissible) return false
         return close(top.id)
     }
+    @Synchronized fun canGoBack(): Boolean {
+        if (closed) return false
+        return presentations().any { it.route.blocking } || page().id !in rootIds
+    }
     @Synchronized fun setForeground(value: Boolean) {
         if (closed) return
         foreground = value; promote(); publish()
@@ -170,6 +184,6 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         if (closed) return
         closed = true
         entries.keys.toList().asReversed().forEach { if (it in entries) remove(it, UIResult.Cancelled) }
-        prompts.clear(); rootJob.cancel(); publish()
+        prompts.clear(); notices.value = emptyList(); rootJob.cancel(); publish()
     }
 }
