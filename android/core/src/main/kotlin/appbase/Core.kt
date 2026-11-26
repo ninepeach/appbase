@@ -25,18 +25,19 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
     private val streams = mutableMapOf<KClass<*>, StreamEntry>()
     private val streamSlots = Semaphore(workers)
     private val ids = mutableSetOf<String>()
-    private val parallel = Channel<Work>(capacity)
-    private val serial = Channel<Work>(capacity)
+    private val parallel = Channel<Work>(capacity, onUndeliveredElement = { it.result.cancel() })
+    private val serial = Channel<Work>(capacity, onUndeliveredElement = { it.result.cancel() })
     private val scope = CoroutineScope(context.scope.coroutineContext + SupervisorJob(context.scope.coroutineContext[Job]) + Dispatchers.Default)
     @Volatile private var started = false
     @Volatile private var closed = false
     init { require(workers > 0 && capacity > 0) }
     private val workerCount = workers
+    private fun validId(id: String) = id.length in 1..128 && id.all { it.isLetterOrDigit() || it in "._-" }
     @Synchronized fun <C : Command<R>, R> register(type: KClass<C>, id: String, policy: Execution = Execution(), handler: suspend (C) -> R) {
-        check(!started && !closed); require(id.isNotBlank() && type !in commands && ids.add(id)); commands[type] = Entry(id, policy) { @Suppress("UNCHECKED_CAST") handler(it as C) }
+        check(!started && !closed); require(validId(id) && type !in commands && ids.add(id)); commands[type] = Entry(id, policy) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
     @Synchronized fun <C : ChannelCommand<T>, T> registerChannel(type: KClass<C>, id: String, handler: (C) -> Flow<T>) {
-        check(!started && !closed); require(id.isNotBlank() && type !in streams && ids.add(id)); streams[type] = StreamEntry(id) { @Suppress("UNCHECKED_CAST") handler(it as C) }
+        check(!started && !closed); require(validId(id) && type !in streams && ids.add(id)); streams[type] = StreamEntry(id) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
     @Synchronized internal fun start() {
         check(!closed && !started)
@@ -54,7 +55,7 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
             try { work.result.complete(task.await()); context.inspector.record(work.entry.id, "completed") }
             catch (e: TimeoutCancellationException) { work.result.completeExceptionally(e); context.inspector.record(work.entry.id, "timeout") }
             catch (e: CancellationException) { work.result.cancel(e); context.inspector.record(work.entry.id, "cancelled") }
-            catch (e: Exception) { work.result.completeExceptionally(e); context.inspector.record(work.entry.id, "failed") }
+            catch (e: Throwable) { work.result.completeExceptionally(e); context.inspector.record(work.entry.id, "failed"); if (e is Error) throw e }
             finally { subscription.dispose(); task.cancel() }
         }
     } }
@@ -72,11 +73,17 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
             val collector = currentCoroutineContext()[Job]!!
             val finished = java.util.concurrent.atomic.AtomicBoolean(false)
             check(scope.isActive) { "Channel service closed" }
-            val guard = scope.launch(start = CoroutineStart.UNDISPATCHED) { try { awaitCancellation() } finally { if (!finished.get()) collector.cancel() } }
-            try { if (!streamSlots.tryAcquire()) throw QueueFull(); try { context.inspector.record(entry.id, "stream.open"); @Suppress("UNCHECKED_CAST") emitAll((flow { emitAll(entry.run(command) as Flow<T>) }).flowOn(Dispatchers.Default).buffer(0)) } finally { streamSlots.release(); context.inspector.record(entry.id, "stream.close") } } finally { finished.set(true); guard.cancel(); }
+            val guard = scope.launch(start = CoroutineStart.UNDISPATCHED) { awaitCancellation() }
+            val completion = guard.invokeOnCompletion { if (!finished.get()) collector.cancel() }
+            try { if (!streamSlots.tryAcquire()) throw QueueFull(); try { context.inspector.record(entry.id, "stream.open"); @Suppress("UNCHECKED_CAST") emitAll((flow { emitAll(entry.run(command) as Flow<T>) }).flowOn(Dispatchers.Default).buffer(0)) } finally { streamSlots.release(); context.inspector.record(entry.id, "stream.close") } } finally { finished.set(true); completion.dispose(); guard.cancel() }
         }
     }
-    @Synchronized internal fun close() { closed = true; parallel.cancel(); serial.cancel(); scope.cancel() }
+    internal fun close() {
+        synchronized(this) { if (closed) return; closed = true }
+        scope.cancel()
+        parallel.cancel()
+        serial.cancel()
+    }
 }
 class CommandClient internal constructor(private val service: CommandService, private val capability: Capability) {
     suspend fun <R> execute(command: Command<R>): R = service.execute(command, capability)
