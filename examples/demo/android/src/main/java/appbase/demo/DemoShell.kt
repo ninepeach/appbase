@@ -160,22 +160,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         }
                                         Group { Item(demoLabel("Subscriptions",language),"Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
                                     }
-                                    "Node editor" -> {
-                                        val original=model.editing
-                                        var name by rememberSaveable { mutableStateOf(original?.name.orEmpty()) }
-                                        var host by rememberSaveable { mutableStateOf(original?.host.orEmpty()) }
-                                        var port by rememberSaveable { mutableStateOf(original?.port ?: "443") }
-                                        var group by rememberSaveable { mutableStateOf(original?.group ?: "Local") }
-                                        OutlinedTextField(group,{group=it},label={Text(demoLabel("Group",language))},modifier=Modifier.fillMaxWidth())
-                                        var protocol by rememberSaveable { mutableStateOf(original?.protocol ?: "VLESS") }
-                                        val valid=name.isNotBlank()&&host.isNotBlank()&&port.toIntOrNull()?.let{it in 1..65535}==true
-                                        OutlinedTextField(name,{name=it},label={Text(demoLabel("Name",language))},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(host,{host=it},label={Text(demoLabel("Server address",language))},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(port,{port=it},label={Text(demoLabel("Port",language))},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
-                                        Group { listOf("VLESS","Shadowsocks","Trojan","SOCKS5","HTTP").forEach { p -> Choice(p,protocol==p){protocol=p} } }
-                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: model.nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Save",language))}
-                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(model.selected==original.id){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Delete node",language))}
-                                    }
+                                    "Node editor" -> NodeEditor(model,language,{notice=it},{back()},{connected=false},::confirm)
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
                                     "Config" -> Group {
                                         configs.forEach { c -> Item(c,if(c==model.activeConfig)"Active" else ""){model.configEdit=c;open("Configuration editor")} }
