@@ -1,19 +1,34 @@
 package appbase.ui
 
 import android.os.Bundle
+import android.os.Parcel
 import androidx.savedstate.SavedStateRegistry
-import appbase.SavedState
+import appbase.SavedStatePlatform
 
-/** Main-thread adapter; consume after the owner's onCreate restoration. */
-class AndroidSavedState(private val registry: SavedStateRegistry) : SavedState {
-    override fun consume(key: String): Map<String, String>? =
-        registry.consumeRestoredStateForKey(key)?.let { bundle ->
-            bundle.keySet().associateWith { bundle.getString(it) ?: error("Invalid saved state") }
+/** Main-thread native adapter. No custom persistence. */
+class AndroidSavedState(private val registry: SavedStateRegistry,
+    private val maxBytes: Int = 131072) : SavedStatePlatform {
+    init { require(maxBytes > 0) }
+    private fun fits(bundle: Bundle): Boolean {
+        val parcel = Parcel.obtain()
+        return try { parcel.writeBundle(bundle); parcel.dataSize() <= maxBytes }
+        finally { parcel.recycle() }
+    }
+    override fun consume(key: String): Map<String, Map<String, String>>? =
+        registry.consumeRestoredStateForKey(key)?.takeIf { fits(it) }?.let { bundle ->
+            bundle.keySet().associateWith { k ->
+                val entry = requireNotNull(bundle.getBundle(k))
+                entry.keySet().associateWith { requireNotNull(entry.getString(it)) }
+            }
         }
-
-    override fun register(key: String, provider: () -> Map<String, String>): AutoCloseable {
+    override fun register(key: String, provider: () -> Map<String, Map<String, String>>): AutoCloseable {
         registry.registerSavedStateProvider(key) {
-            Bundle().apply { provider().forEach { (k, v) -> putString(k, v) } }
+            val result = Bundle()
+            provider().forEach { (k, v) ->
+                result.putBundle(k, Bundle().apply { v.forEach { (name, value) -> putString(name, value) } })
+                if (!fits(result)) result.remove(k)
+            }
+            result
         }
         return AutoCloseable { registry.unregisterSavedStateProvider(key) }
     }
