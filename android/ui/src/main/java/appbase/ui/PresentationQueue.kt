@@ -8,6 +8,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 data class ModalRequest(val key:String,val title:String,val message:String,val confirm:String="Confirm",val cancel:String="Cancel",val priority:Int=0,val action:()->Unit)
+
+/**
+ * A bounded, main-thread presentation queue.
+ *
+ * Modal and notice insertion is O(n) and overlay insertion is O(1); memory is O(capacity).
+ * Duplicate modal keys and notice text are rejected. Modal priority never interrupts the
+ * currently visible modal. Repeated resolve/end calls are safe. Compose state requires every
+ * operation to run on Android's main thread.
+ */
 class PresentationQueue(private val capacity:Int=32) {
     init { require(capacity>0) }
     private val modals=mutableStateListOf<ModalRequest>()
@@ -17,7 +26,6 @@ class PresentationQueue(private val capacity:Int=32) {
     val modal get()=modals.firstOrNull()
     val notice get()=notices.firstOrNull()
     val overlay get()=overlays.lastOrNull()?.second
-    // All methods must be called on the UI thread.
     fun enqueue(request:ModalRequest):Boolean {
         if(modals.any{it.key==request.key} || modals.size>=capacity)return false
         val index=(1 until modals.size).firstOrNull { modals[it].priority < request.priority } ?: modals.size
@@ -34,10 +42,11 @@ class PresentationQueue(private val capacity:Int=32) {
     }
     fun consumeNotice(expected:String) { if(notice==expected)notices.removeAt(0) }
     fun beginOverlay(message:String):Long {
+        require(message.isNotBlank()) { "Overlay message must not be blank" }
         check(overlays.size<capacity)
         val token=++sequence;overlays.add(token to message);return token
     }
-    fun endOverlay(token:Long){overlays.removeAll { it.first==token }}
+    fun endOverlay(token:Long):Boolean = overlays.removeAll { it.first==token }
     fun clear(){modals.clear();notices.clear();overlays.clear()}
 }
 @Composable fun PresentationHost(queue:PresentationQueue,snackbar:SnackbarHostState) {

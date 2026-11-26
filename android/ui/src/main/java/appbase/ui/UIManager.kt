@@ -10,10 +10,17 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import appbase.*
 
+/**
+ * Owns a bounded navigation stack and renders one screen plus ordered presentation layers.
+ *
+ * Construction is O(n). Navigation operations are delegated to [Navigation]. [Content] may
+ * block only while composables supplied by the caller block. All calls must run on the main
+ * thread. Removed destinations also lose their saved form state.
+ */
 class UIManager(private val root: String, definitions: Map<String, Layer>, private val renderers: Map<String, @Composable (UIEntry) -> Unit>) {
     val navigation = Navigation(definitions, root)
     init { require(definitions.keys == renderers.keys) }
-    fun mount(activity: ComponentActivity) { activity.setContent { MaterialTheme { Content() } } }
+    fun mount(activity: ComponentActivity) { activity.setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { Content() } } } }
     @Composable fun Content() {
         val stack by navigation.stack.collectAsState()
         val holder = rememberSaveableStateHolder()
@@ -23,7 +30,7 @@ class UIManager(private val root: String, definitions: Map<String, Layer>, priva
             (previous - current).forEach { holder.removeState(it.toString()) }
             previous = current
         }
-        BackHandler(enabled = stack.any { it.layer != Layer.TOAST && it.instance != stack.first().instance }) { navigation.back() }
+        BackHandler(enabled = stack.size > 1) { navigation.back() }
         Box(Modifier.fillMaxSize()) {
             val screen = stack.last { it.layer == Layer.SCREEN }
             ScreenHost(holder,screen.instance.toString()) { transition -> Box(Modifier.fillMaxSize().then(transition)) { renderers.getValue(screen.id)(screen) } }

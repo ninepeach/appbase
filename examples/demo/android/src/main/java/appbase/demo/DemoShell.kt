@@ -1,15 +1,11 @@
 package appbase.demo
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,6 +59,8 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     DisposableEffect(owner,controller) {
         val observer=LifecycleEventObserver { _, event ->
             when(event) {
+                Lifecycle.Event.ON_RESUME -> controller.log("UI resumed / unlocked")
+                Lifecycle.Event.ON_PAUSE -> controller.log("UI paused / lock transition")
                 Lifecycle.Event.ON_START -> controller.log("UI foreground")
                 Lifecycle.Event.ON_STOP -> controller.log("UI background")
                 else -> Unit
@@ -117,7 +115,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                 Switch(connected,{ if(nodes.any{n->n.id==model.selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
                                             }
                                             Item(demoLabel("Global routing",language),routing){open("Routing")}
-                                            Item("Connectivity test","Simulate"){notice="Simulated test complete";addLog("Connectivity test")}
+                                            Item(demoLabel("Connectivity test",language),demoLabel("Simulate",language)){notice="Simulated test complete";addLog("Connectivity test")}
                                         }
                                         var query by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(query,{query=it},label={Text(demoLabel("Search nodes",language))},modifier=Modifier.fillMaxWidth(),singleLine=true)
@@ -129,7 +127,13 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                             TextButton(onClick={controller.sortNodes()}){Text(demoLabel("Sort A–Z",language))}
                                             TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(groupFilter)}
                                         }
-                                        if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(model.selected in ids){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
+                                        if(batch) {
+                                            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){controller.deleteNodes(ids);connected=false;marked.clear();batch=false}}){Text("Delete selected (" + marked.size + ")")}
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Local");marked.clear()}){Text("Move to Local")}
+                                                TextButton(enabled=marked.isNotEmpty(),onClick={controller.moveNodesToGroup(marked.toSet(),"Work");marked.clear()}){Text("Move to Work")}
+                                            }
+                                        }
                                         Group {
                                             val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
                                             if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
@@ -158,21 +162,21 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                 }; HorizontalDivider()
                                             } }
                                         }
-                                        Group { Item(demoLabel("Subscriptions",language),"Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
+                                        Group { Item(demoLabel("Subscriptions",language),demoLabel("Manage",language)){open("Subscriptions")};Item(demoLabel("Import node",language)){open("Import")} }
                                     }
                                     "Node editor" -> NodeEditor(model,language,{notice=it},{back()},{connected=false},::confirm)
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
                                     "Config" -> Group {
-                                        configs.forEach { c -> Item(c,if(c==model.activeConfig)"Active" else ""){model.configEdit=c;open("Configuration editor")} }
-                                        Item("Rules"){open("Rules")};Item("Import configuration"){open("Import")}
+                                        configs.forEach { c -> Item(c,if(c==model.activeConfig)demoLabel("Active",language) else ""){model.configEdit=c;open("Configuration editor")} }
+                                        Item(demoLabel("Rules",language)){open("Rules")};Item(demoLabel("Import configuration",language)){open("Import")}
                                     }
                                     "Configuration editor" -> ConfigurationEditor(model,language,::back,::confirm)
                                     "Data" -> {
-                                        Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
-                                        Text("All traffic values are simulated.",style=MaterialTheme.typography.bodySmall)
+                                        Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Connections",language)){open("Connections")};Item(demoLabel("Logs",language)){open("Logs")} }
+                                        Text(demoLabel("All traffic values are simulated.",language),style=MaterialTheme.typography.bodySmall)
                                     }
                                     "Traffic" -> { Text("Session traffic · mock"); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text("Day ${i+1}",Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
-                                    "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,"No active connections") {} }
+                                    "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,demoLabel("No active connections",language)) {} }
                                     "Logs" -> {
                                         var filter by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(filter,{filter=it},label={Text(demoLabel("Filter logs",language))},modifier=Modifier.fillMaxWidth())
@@ -180,26 +184,26 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text(demoLabel("Clear",language))}
                                     }
                                     "Settings" -> {
-                                        Group { Item(demoLabel("Appearance",language),appearance){open("Appearance")};Item(demoLabel("Language",language),language){open("Language")};Item("DNS"){open("DNS")};Item("Notifications"){open("Notifications")};Item("Privacy"){open("Privacy")};Item("Advanced"){open("Advanced")} }
-                                        Group { Item("Diagnostics"){open("Diagnostics")};Item("About"){open("About")};Item("Onboarding"){open("Onboarding")} }
+                                        Group { Item(demoLabel("Appearance",language),appearance){open("Appearance")};Item(demoLabel("Language",language),language){open("Language")};Item("DNS"){open("DNS")};Item(demoLabel("Notifications",language)){open("Notifications")};Item(demoLabel("Privacy",language)){open("Privacy")};Item(demoLabel("Advanced",language)){open("Advanced")} }
+                                        Group { Item(demoLabel("Diagnostics",language)){open("Diagnostics")};Item(demoLabel("About",language)){open("About")};Item(demoLabel("Onboarding",language)){open("Onboarding")} }
                                     }
                                     "Appearance" -> Group { listOf("System","Light","Dark").forEach{Choice(it,appearance==it){setAppearance(it)}} }
                                     "Language" -> { Text(demoLabel("Language",language));Group{listOf("System","English","繁體中文","简体中文","日本語").forEach{Choice(it,language==it){language=it}}} }
                                     "DNS","Notifications","Privacy","Advanced" -> Group {
                                         val names=when(page){"DNS"->listOf("Use custom DNS","DNS over HTTPS");"Notifications"->listOf("Connection notifications","Error notifications");"Privacy"->listOf("Redact logs","Hide server address");else->listOf("Auto connect","Verbose logging","Show diagnostics")}
-                                        names.forEach{n->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(n,Modifier.weight(1f));Switch(options[n]?:false,{options[n]=it})};HorizontalDivider()}
+                                        names.forEach{n->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(demoLabel(n,language),Modifier.weight(1f));Switch(options[n]?:false,{options[n]=it})};HorizontalDivider()}
                                     }
-                                    "Diagnostics" -> Group { Item("UI stack",stack.size.toString()){notice=stack.joinToString(" → "){it.id}};Item("Nodes",nodes.size.toString()){notice="In-memory UI state"};Item("Runtime logs"){open("Logs")} }
-                                    "About" -> { Text("Appbase Demo",style=MaterialTheme.typography.headlineMedium);Text("Native Compose UI prototype. No VPN, networking or persistent storage.");Group{Item("Open source licenses"){open("Licenses")}} }
+                                    "Diagnostics" -> Group { Item(demoLabel("UI stack",language),stack.size.toString()){notice=stack.joinToString(" → "){it.id}};Item(demoLabel("Nodes",language),nodes.size.toString()){notice="In-memory UI state"};Item(demoLabel("Runtime logs",language)){open("Logs")} }
+                                    "About" -> { Text("Appbase Demo",style=MaterialTheme.typography.headlineMedium);Text(demoLabel("No VPN, networking or persistent storage.",language));Group{Item(demoLabel("Open source licenses",language)){open("Licenses")}} }
                                     "Licenses" -> Text("Dependency license inventory is not yet generated.")
                                     "Rules" -> Group { listOf("DOMAIN,example.org,PROXY","GEOIP,LOCAL,DIRECT","FINAL,PROXY").forEach{Text(it,Modifier.padding(vertical=12.dp))} }
                                     "Subscriptions" -> SubscriptionScreen(model,language,{notice=it},::confirm)
                                     "Import" -> {
                                         var input by rememberSaveable { mutableStateOf("") }
-                                        OutlinedTextField(input,{input=it},label={Text(if(page=="Import")"Paste configuration or URI" else "Subscription URL")},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(input,{input=it},label={Text(demoLabel(if(page=="Import")"Paste configuration or URI" else "Subscription URL",language))},modifier=Modifier.fillMaxWidth())
                                         Button(enabled=input.isNotBlank(),onClick={notice="Preview only: no network or import parser";back()}){Text(demoLabel("Preview",language))}
                                     }
-                                    "Onboarding" -> {Text("Welcome to Appbase",style=MaterialTheme.typography.headlineMedium);Text("Explore nodes, configuration and simulated traffic. No VPN permission is required.");Button(onClick={back()}){Text(demoLabel("Done",language))} }
+                                    "Onboarding" -> {Text(demoLabel("Welcome to Appbase",language),style=MaterialTheme.typography.headlineMedium);Text(demoLabel("No VPN, networking or persistent storage.",language));Button(onClick={back()}){Text(demoLabel("Done",language))} }
                                 }
                             }
                         }

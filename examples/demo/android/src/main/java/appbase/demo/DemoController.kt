@@ -18,4 +18,17 @@ internal class DemoController(private val model:DemoModel) {
             model.nodes.add(target,node)
         }
     }
+
+    fun deleteNodes(ids:Set<Int>) {
+        if (ids.isEmpty()) return
+        model.nodes.removeAll { it.id in ids }
+        if (model.selected in ids) model.selected=model.nodes.firstOrNull()?.id ?: -1
+        log("Deleted " + ids.size + " node(s)")
+    }
+
+    fun moveNodesToGroup(ids:Set<Int>,group:String) {
+        require(group.isNotBlank()) { "Group must not be blank" }
+        model.nodes.replaceAll { if (it.id in ids) it.copy(group=group.trim()) else it }
+        log("Moved " + ids.size + " node(s) to " + group.trim())
+    }
 }
