@@ -84,7 +84,7 @@ Core estimates: 32 bytes per entry plus UTF-8 key; 16 bytes per value and map me
 
 ## 5. Platform and lifecycle
 
-Target module placement: SavedState and AndroidSavedState both belong to Core, alongside UIManager and UIHost. The native adapter currently resides in the UI library; relocation and Android Core build migration are pending. Core must not depend on the optional visual component library. See [UIManager](ui-manager.md).
+Target module placement: SavedState and AndroidSavedState both belong to Core, alongside UIManager and UIHost. Both classes now reside in Android Core; compilation and integration remain pending. Core must not depend on the optional visual component library. See [UIManager](ui-manager.md).
 
 AndroidSavedState(registry, maxBytes = 131072) encodes supported types into tagged Bundles, decodes on consume, and checks actual Parcel size. Register after the native registry is restored and before its save phase; dispose on the native owner thread. No guarantee of OS save delivery. UIManager.bindSavedState restores its navigation map then registers a provider; arbitrary route arguments are excluded. Unified app.savedState ownership and UIHost automatic binding remain pending. Native adapter and core limits must be configured coherently.
 
@@ -97,15 +97,15 @@ AndroidSavedState(registry, maxBytes = 131072) encodes supported types into tagg
 | Deadlock from provider reentry | Execute providers and warnings outside lock; identity check rejects stale results. Provider must not block native save thread. |
 | Snapshot races | Static values taken at merge; providers sampled independently. Document this, do not claim global transaction. Newly registered providers may wait until next save. |
 | Parent close and duplicate scope handles | Parent chain invalidates descendants of that handle. Same-prefix handles can still write after another handle closes; define ownership policy and test before stable release. |
-| Provider failure | Core catches callback/validation/copy failure and omits entry. Android decode currently fails whole consume on malformed entry; isolate per-entry decode and warn in future hardening. |
+| Provider failure | Core catches callback/validation/copy failure and omits entry. Android isolates malformed top-level entries during decode; malformed nested data rejects its containing entry. Whole-bundle overflow or unparcel failure can still prevent restore; per-entry native warnings are pending. |
 | Stale restored value | Unregister removes provider, not restored value; explicitly remove key if no fallback desired. Document and test. |
 | Reentrant/concurrent save | Current guard returns empty map; native owner should serialize saves. Test reentry and consider retaining last valid snapshot if required. |
-| Memory during snapshot | Current code accumulates all individually bounded provider results before aggregate merge; total temporary memory can exceed total budget. Future hardening: process one provider at a time with bounded aggregate staging. |
+| Memory during snapshot | Providers are evaluated one at a time into aggregate-bounded staging, then reconciled against current static values and provider identities. Temporary copies and caller allocations are not a strict heap cap; concurrent removal and final-budget rejection need tests. |
 | Size accuracy | size reports estimates and last accepted provider sizes, which may be stale or differ from native accepted entries. Do not treat as exact current usage. |
 | Native overflow | Parcel cap protects this provider only, not the whole Activity transaction. Android currently drops overflow entries silently; add diagnostic reporting and test native overhead. |
 | Navigation entry count | Current flat navigation map uses four keys per instance plus metadata; default 256 collection limit may reject deep stacks. Use compact structured descriptors or explicitly bounded navigation capacity. |
 | Secrets and durability | Never store tokens, passwords or essential records; use secure/persistent storage instead. |
-| Native owner disposal | Root creation/close must follow platform thread rules; no automatic main-thread dispatch. Add lifecycle integration and tests. |
+| Native owner disposal | Android consume/register/unregister explicitly check the main Looper; registration close is idempotent. Root creation/close must follow platform thread rules; no automatic dispatch. Wrong-thread root close can leave registration undisposed because core closes before native disposal. Add lifecycle integration and tests. |
 
 ## 7. Acceptance and verification
 
