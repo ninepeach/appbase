@@ -89,10 +89,10 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                 ) { padding ->
                     Column(Modifier.fillMaxSize().padding(padding)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                            if(stack.size>1) TextButton(onClick={back()}) { Text("‹ Back") }
+                            if(stack.size>1) TextButton(onClick={back()}) { Text(demoLabel("‹ Back",language)) }
                             Text(demoLabel(page,language),style=MaterialTheme.typography.headlineSmall,modifier=Modifier.weight(1f))
-                            if(page=="Home") TextButton(onClick={model.editing=null;open("Node editor")}) { Text("+ Add") }
-                            if(page=="Config") TextButton(onClick={model.configEdit="";open("Configuration editor")}) { Text("+ Add") }
+                            if(page=="Home") TextButton(onClick={model.editing=null;open("Node editor")}) { Text(demoLabel("+ Add",language)) }
+                            if(page=="Config") TextButton(onClick={model.configEdit="";open("Configuration editor")}) { Text(demoLabel("+ Add",language)) }
                         }
                         holder.SaveableStateProvider("$tab:${stack.last().instance}") {
                             val opacity = remember { Animatable(0f) }
@@ -102,20 +102,20 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     "Home" -> {
                                         Group {
                                             Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                                                Text(if(connected) "Connected · simulated" else "Disconnected",Modifier.weight(1f))
+                                                Text(demoLabel(if(connected) "Connected · simulated" else "Disconnected",language),Modifier.weight(1f))
                                                 Switch(connected,{ if(nodes.any{n->n.id==model.selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
                                             }
                                             Item(demoLabel("Global routing",language),routing){open("Routing")}
                                             Item("Connectivity test","Simulate"){notice="Simulated test complete";addLog("Connectivity test")}
                                         }
                                         var query by rememberSaveable { mutableStateOf("") }
-                                        OutlinedTextField(query,{query=it},label={Text("Search nodes")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                                        OutlinedTextField(query,{query=it},label={Text(demoLabel("Search nodes",language))},modifier=Modifier.fillMaxWidth(),singleLine=true)
                                         var batch by rememberSaveable { mutableStateOf(false) }
                                         val marked = remember { mutableStateListOf<Int>() }
                                         var groupFilter by rememberSaveable { mutableStateOf("All") }
                                         Row(verticalAlignment=Alignment.CenterVertically) {
-                                            TextButton(onClick={batch=!batch;marked.clear()}){Text(if(batch)"Done" else "Manage")}
-                                            TextButton(onClick={controller.sortNodes()}){Text("Sort A–Z")}
+                                            TextButton(onClick={batch=!batch;marked.clear()}){Text(demoLabel(if(batch)"Done" else "Manage",language))}
+                                            TextButton(onClick={controller.sortNodes()}){Text(demoLabel("Sort A–Z",language))}
                                             TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(groupFilter)}
                                         }
                                         if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(model.selected in ids){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
@@ -143,7 +143,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                         })
                                                         TextButton(onClick={controller.moveNode(n.id,-1)}){Text("↑")}
                                                         TextButton(onClick={controller.moveNode(n.id,1)}){Text("↓")}
-                                                    } else TextButton(onClick={model.editing=n;open("Node editor")}){Text("Edit")}
+                                                    } else TextButton(onClick={model.editing=n;open("Node editor")}){Text(demoLabel("Edit",language))}
                                                 }; HorizontalDivider()
                                             } }
                                         }
@@ -155,15 +155,15 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         var host by rememberSaveable { mutableStateOf(original?.host.orEmpty()) }
                                         var port by rememberSaveable { mutableStateOf(original?.port ?: "443") }
                                         var group by rememberSaveable { mutableStateOf(original?.group ?: "Local") }
-                                        OutlinedTextField(group,{group=it},label={Text("Group")},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(group,{group=it},label={Text(demoLabel("Group",language))},modifier=Modifier.fillMaxWidth())
                                         var protocol by rememberSaveable { mutableStateOf(original?.protocol ?: "VLESS") }
                                         val valid=name.isNotBlank()&&host.isNotBlank()&&port.toIntOrNull()?.let{it in 1..65535}==true
-                                        OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(host,{host=it},label={Text("Server address")},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(port,{port=it},label={Text("Port")},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(name,{name=it},label={Text(demoLabel("Name",language))},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(host,{host=it},label={Text(demoLabel("Server address",language))},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(port,{port=it},label={Text(demoLabel("Port",language))},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
                                         Group { listOf("VLESS","Shadowsocks","Trojan","SOCKS5","HTTP").forEach { p -> Choice(p,protocol==p){protocol=p} } }
-                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: model.nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
-                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(model.selected==original.id){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
+                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: model.nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Save",language))}
+                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(model.selected==original.id){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Delete node",language))}
                                     }
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
                                     "Config" -> Group {
@@ -173,22 +173,22 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                     "Configuration editor" -> {
                                         var name by rememberSaveable { mutableStateOf(model.configEdit) }
                                         var body by rememberSaveable { mutableStateOf(configBodies[model.configEdit] ?: "# Demo configuration\n[General]\n") }
-                                        OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
-                                        OutlinedTextField(body,{body=it},label={Text("Configuration preview")},minLines=8,modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=name.isNotBlank(),onClick={if(name != model.configEdit && model.configEdit in configs){configs.remove(model.configEdit);configBodies.remove(model.configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;model.activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
-                                        if(model.configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(model.configEdit);configBodies.remove(model.configEdit);if(model.activeConfig==model.configEdit)model.activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
+                                        OutlinedTextField(name,{name=it},label={Text(demoLabel("Name",language))},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(body,{body=it},label={Text(demoLabel("Configuration preview",language))},minLines=8,modifier=Modifier.fillMaxWidth())
+                                        Button(enabled=name.isNotBlank(),onClick={if(name != model.configEdit && model.configEdit in configs){configs.remove(model.configEdit);configBodies.remove(model.configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;model.activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text(demoLabel("Save and activate (mock)",language))}
+                                        if(model.configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(model.configEdit);configBodies.remove(model.configEdit);if(model.activeConfig==model.configEdit)model.activeConfig=configs.firstOrNull().orEmpty();back()}}){Text(demoLabel("Delete",language))}
                                     }
                                     "Data" -> {
-                                        Group { Item("Upload",if(connected)"12 MB" else "0 MB"){open("Traffic")};Item("Download",if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
+                                        Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
                                         Text("All traffic values are simulated.",style=MaterialTheme.typography.bodySmall)
                                     }
                                     "Traffic" -> { Text("Session traffic · mock"); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text("Day ${i+1}",Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
                                     "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,"No active connections") {} }
                                     "Logs" -> {
                                         var filter by rememberSaveable { mutableStateOf("") }
-                                        OutlinedTextField(filter,{filter=it},label={Text("Filter logs")},modifier=Modifier.fillMaxWidth())
+                                        OutlinedTextField(filter,{filter=it},label={Text(demoLabel("Filter logs",language))},modifier=Modifier.fillMaxWidth())
                                         logs.filter{it.contains(filter,true)}.forEach{Text(it)}
-                                        TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text("Clear")}
+                                        TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text(demoLabel("Clear",language))}
                                     }
                                     "Settings" -> {
                                         Group { Item(demoLabel("Appearance",language),appearance){open("Appearance")};Item(demoLabel("Language",language),language){open("Language")};Item("DNS"){open("DNS")};Item("Notifications"){open("Notifications")};Item("Privacy"){open("Privacy")};Item("Advanced"){open("Advanced")} }
@@ -208,16 +208,16 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         var url by rememberSaveable { mutableStateOf("") }
                                         if(subscriptions.isEmpty()) UIContent(ContentStatus.EMPTY,"No subscriptions") {}
                                         subscriptions.forEach { address -> Group { Item(address,"Remove"){confirm("Remove subscription?"){subscriptions.remove(address)}} } }
-                                        OutlinedTextField(url,{url=it},label={Text("Subscription URL")},modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=url.startsWith("https://")&&url !in subscriptions,onClick={subscriptions.add(url);url=""}){Text("Add")}
-                                        Button(enabled=subscriptions.isNotEmpty(),onClick={notice="Simulated refresh complete"}){Text("Refresh all")}
+                                        OutlinedTextField(url,{url=it},label={Text(demoLabel("Subscription URL",language))},modifier=Modifier.fillMaxWidth())
+                                        Button(enabled=url.startsWith("https://")&&url !in subscriptions,onClick={subscriptions.add(url);url=""}){Text(demoLabel("Add",language))}
+                                        Button(enabled=subscriptions.isNotEmpty(),onClick={notice="Simulated refresh complete"}){Text(demoLabel("Refresh all",language))}
                                     }
                                     "Import" -> {
                                         var input by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(input,{input=it},label={Text(if(page=="Import")"Paste configuration or URI" else "Subscription URL")},modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=input.isNotBlank(),onClick={notice="Preview only: no network or import parser";back()}){Text("Preview")}
+                                        Button(enabled=input.isNotBlank(),onClick={notice="Preview only: no network or import parser";back()}){Text(demoLabel("Preview",language))}
                                     }
-                                    "Onboarding" -> {Text("Welcome to Appbase",style=MaterialTheme.typography.headlineMedium);Text("Explore nodes, configuration and simulated traffic. No VPN permission is required.");Button(onClick={back()}){Text("Done")} }
+                                    "Onboarding" -> {Text("Welcome to Appbase",style=MaterialTheme.typography.headlineMedium);Text("Explore nodes, configuration and simulated traffic. No VPN permission is required.");Button(onClick={back()}){Text(demoLabel("Done",language))} }
                                 }
                             }
                         }
