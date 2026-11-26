@@ -9,7 +9,7 @@ StateStore(capacity = 256); declare(key, initial); observe(key): StateFlow<T>; s
 Example: val count = StateKey<Int>("count"); app.state.declare(count, 0); app.state.update(count) { it + 1 }.
 
 ## Problems and solutions
-CAS update prevents lost concurrent increments; transform may execute repeatedly and must be pure. Registry lookup is synchronized; transform runs outside registry lock. StateFlow conflates equal values and intermediate updates. Duplicate identity and full registry reject declaration. Registry lifetime is App lifetime; dynamic removal, byte budgets and explicit disposal are not implemented. Do not retain large mutable payloads.
+CAS update prevents lost concurrent increments; transform may execute repeatedly and must be side-effect free. Registry lookup is synchronized; transform runs outside registry lock. StateFlow conflates equal values and intermediate updates. Duplicate identity and full registry reject declaration. Registry lifetime is App lifetime; dynamic removal, byte budgets and explicit disposal are not implemented. Do not retain large mutable payloads.
 
 ## Acceptance
 Test concurrent increments, capacity, duplicate keys, unknown keys, conflation and transform retry. Source implemented; build/tests not verified.
