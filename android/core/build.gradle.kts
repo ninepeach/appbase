@@ -8,6 +8,7 @@ android {
 }
 kotlin { jvmToolchain(17) }
 dependencies {
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     api(platform("androidx.compose:compose-bom:2025.04.01"))
