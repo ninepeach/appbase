@@ -1,4 +1,4 @@
-# UIManager Design Specification
+# UIManager Design Specification (UIManager and UIHost)
 
 Status: core state machine and Android UIHost implemented; integration, hardening and verification pending. Requirements below are target behavior unless explicitly identified as current implementation.
 Document standard: [Appbase design document standard](design-document-standard.md). Related: [SavedState](saved-state.md).
@@ -11,6 +11,16 @@ UIManager is the single public management entry point for pages, modals, overlay
 Android and iOS implement UIManager independently using native facilities. Public names and behavior should align where practical; no shared runtime or adaptation layer is required.
 
 Keep the implementation small and deterministic. Do not introduce separate public navigation, presentation, input, transition or state managers. Registry, stacks and queues may be ordinary private data structures. UIHost renders native UI; DesignSystem is independent. Ordinary widgets, styling, business logic and local widget state are not managed by UIManager.
+
+## Core placement and dependency rules
+
+UIManager and UIHost are two separate classes in the same Core module and share this specification. Core is the native application infrastructure, not a platform-independent JVM library. Android and iOS implement independently. The optional UI library contains DesignSystem, themes and reusable visual components; applications may use Core without it.
+
+Target Android layout: move UIHost and AndroidSavedState into Core alongside UIManager and SavedState. Convert Core to an Android library with necessary Compose and native dependencies. Preserve UIManager's pure state-machine logic and JVM unit-testability where practical. UIHost depends on UIManager, native UI, SavedState and lifecycle integration; UIManager must not depend on UIHost. Core must not depend on the optional UI library. Communication primitives must not depend on UI components. UIHost must not impose product themes or colors; application supplies theme/content, with native presentation defaults where necessary.
+
+Trade-off: Core gains Android/Compose build dependencies even for headless consumers. This is accepted for the native Appbase application runtime; independent Foundation libraries remain usable without UI. Do not merge classes merely because they share a module.
+
+Migration acceptance: Core builds as Android library, UIHost and AndroidSavedState resolve from Core, no reverse dependency on UI library, app can mount UI without DesignSystem, pure logic tests remain runnable, and native lifecycle/restoration tests pass. This is a design decision; source relocation and build changes are pending.
 
 ## 2. Managed UI
 
@@ -96,7 +106,7 @@ Validate the pure state machine with automated tests and the native host with de
 
 ## 9. Design rationale and current implementation
 
-UIManager owns instance identity, ordering, ownership and state lifetime. UIHost owns native rendering, input enforcement and native widget state. SavedState owns bounded navigation persistence; AppLifecycle owns application lifecycle signals. This separation avoids duplicating native facilities or coupling the pure Kotlin state machine to Android. Android core uses Kotlin/JVM, UUID and kotlinx.coroutines (StateFlow, SupervisorJob, CompletableDeferred); UIHost uses Android Activity and Compose. No dedicated UIManager thread or polling loop.
+UIManager owns instance identity, ordering, ownership and state lifetime. UIHost owns native rendering, input enforcement and native widget state. SavedState owns bounded navigation persistence; AppLifecycle owns application lifecycle signals. This separation avoids duplicating native facilities or coupling the pure Kotlin state machine to Android. Current Android core build uses Kotlin/JVM, UUID and kotlinx.coroutines (StateFlow, SupervisorJob, CompletableDeferred); UIHost currently resides in the UI library and uses Android Activity and Compose. Target Core includes both classes as specified above. No dedicated UIManager thread or polling loop.
 
 The current manager uses one insertion-ordered instance registry rather than separate public stack managers. Each tab has a protected root; the last PAGE in a tab is its active page. Parent links support recursive removal. Route identity is reusable; UUID instance identity is unique per opening. The snapshot separates live instances, visible IDs, interactive ID and foreground. StateFlow represents authoritative current state, not an event history. Mutations synchronize on the manager monitor; each instance has a child job and result deferred. Close removes descendants, cancels jobs and completes results. The native host renders the active page and top blocking dialog, with SaveableStateHolder keyed by instance ID. It removes state for closed IDs and uses native Snackbar duration. Composition disposal is not logical close.
 
@@ -201,6 +211,6 @@ Implemented: core route/instance registry, tab history, modal stack, page-bound 
 
 Source locations:
 - android/core/src/main/kotlin/appbase/UIManager.kt
-- android/ui/src/main/java/appbase/ui/UIHost.kt
+- android/ui/src/main/java/appbase/ui/UIHost.kt (current; target: Core)
 - android/core/src/main/kotlin/appbase/SavedState.kt
 - android/core/src/main/kotlin/appbase/Lifecycle.kt
