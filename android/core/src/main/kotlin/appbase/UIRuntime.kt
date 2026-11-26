@@ -25,7 +25,7 @@ sealed interface UIResult {
     object Cancelled : UIResult
 }
 
-class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
+class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val capacity: Int = 128, private val queueCapacity: Int = 32,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     dispatcher: CoroutineDispatcher = Dispatchers.Default) : AutoCloseable {
@@ -36,6 +36,7 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val jobs = mutableMapOf<String, CompletableJob>()
     private val results = mutableMapOf<String, CompletableDeferred<UIResult>>()
     private val prompts = mutableListOf<UIPrompt>()
+    private val activeKeys = mutableMapOf<String, String>()
     private val rootJob = SupervisorJob()
     private val context = dispatcher + rootJob
     private var selected = roots.keys.first()
@@ -82,8 +83,10 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
         publish(); return item.id
     }
-    @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap()): String {
-        val item = add(route, selected, modal()?.id ?: page().id, arguments, UILayer.MODAL)
+    @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String {
+        val parent = modal()?.id ?: page().id
+        require(owner == null || owner == parent) { "Owner must be the current page or modal" }
+        val item = add(route, selected, parent, arguments, UILayer.MODAL)
         publish(); return item.id
     }
     @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String {
@@ -104,7 +107,7 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
         require(definitions.getValue(route).layer == UILayer.MODAL && key.isNotBlank() && ttlMs in 1..86_400_000)
         require(arguments.size <= 64 && arguments.all { it.key.length <= 128 && it.value.length <= 8192 })
         prune()
-        if (prompts.size >= queueCapacity || prompts.any { it.key == key }) { publish(); return null }
+        if (prompts.size >= queueCapacity || prompts.any { it.key == key } || key in activeKeys.values) { publish(); return null }
         val id = UUID.randomUUID().toString()
         prompts.add(UIPrompt(id, route, selected, page().id, key, priority, clock() + ttlMs, arguments.toMap()))
         promote(); publish(); return id
@@ -116,9 +119,10 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
         val next = prompts.filter { it.tab == selected && it.owner == page().id }.maxByOrNull { it.priority } ?: return
         prompts.remove(next)
         add(next.route, next.tab, next.owner, next.arguments, UILayer.MODAL, next.id)
+        activeKeys[next.id] = next.key
     }
     @Synchronized fun refresh() { if (!closed) { promote(); publish() } }
-    @Synchronized fun cancelPrompt(id: String): Boolean {
+    @Synchronized fun cancelQueuedModal(id: String): Boolean {
         val removed = prompts.removeAll { it.id == id }
         if (removed) publish()
         return removed
@@ -126,6 +130,7 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
     private fun remove(id: String, result: UIResult) {
         entries.values.filter { it.parent == id }.map { it.id }.asReversed().forEach { remove(it, UIResult.Cancelled) }
         entries.remove(id)
+        activeKeys.remove(id)
         prompts.removeAll { it.owner == id }
         jobs.remove(id)?.cancel()
         results.remove(id)?.complete(result)
@@ -142,10 +147,16 @@ class UIRuntime(routes: Collection<UIRoute>, roots: Map<String, String>,
         if (!target.route.dismissible) return true
         return close(target.id)
     }
-    @Synchronized fun switchTab(tab: String) {
+    @Synchronized fun selectRoot(tab: String) {
         check(!closed); require(tab in roots)
         if (presentations().any { it.route.blocking }) return
         selected = tab; promote(); publish()
+    }
+    @Synchronized fun popModal(): Boolean {
+        if (closed) return false
+        val top = modal() ?: return false
+        if (!top.route.dismissible) return false
+        return close(top.id)
     }
     @Synchronized fun setForeground(value: Boolean) {
         if (closed) return
