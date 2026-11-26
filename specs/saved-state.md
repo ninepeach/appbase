@@ -1,126 +1,48 @@
 # SavedState — Design specification
 
-Status: implemented core and Android adapter; compilation, concurrency tests and integration acceptance pending. This document distinguishes current behavior from required hardening.
+Status: target design approved for simplification; existing source still implements the untyped store. Migration and tests pending.
 
-## 1. Purpose and non-goals
+## 1. Purpose and boundaries
 
-SavedState preserves small transient application/UI state across native owner reconstruction when the OS supplies a saved snapshot. It is not persistent KV, a database, a reactive state store, a secret store or a guarantee of recovery after force-stop or arbitrary process termination. No disk fallback, worker, coroutine, event bus or third-party core dependency. Android and iOS follow the same interface semantics and design principles but implement independently; this document describes the current Android implementation, not an implemented iOS port.
+SavedState is an optional, small, typed native-owner transient state facility. It is not a global KV store, reactive state store, database, secret store or durability guarantee. Page-local state belongs to rememberSaveable or SavedStateHandle and Navigation 3 decorators. UIManager owns navigation snapshot registration. Services and business records use appropriate persistent storage such as DataStore or Room; runtime shared state uses StateStore. Android and iOS implement independently using native facilities.
 
-## 2. Design principles and architecture
+## 2. Design principles
 
-- Native ownership: the platform determines save/restore timing. One root registers one aggregate provider. Android uses SavedStateRegistry and Bundle, with a Parcel size check. Native registration and root disposal follow the owner thread.
-- Small, bounded state: use identifiers, selections, navigation descriptors and small drafts, not images, files, credentials or business records. Reject oversized values rather than truncate them.
-- One shared Store per root: all scopes share values, providers, size accounting and one lock. No separate manager.
-- Thread-safe core: static reads, mutations, capacity checks and lifecycle changes synchronize on the Store lock. External provider and warning callbacks and native disposal execute outside it.
-- Defensive ownership: copy caller-owned lists/maps/byte arrays on ingress and copy on egress. Callers must not concurrently mutate input collections during a call.
-- Explicit scope lifecycle: parent handles invalidate descendants on close; clear removes the namespace subtree without closing the handle. Root close unregisters the native provider. Current same-name scope handles share a namespace; see risks.
-- Snapshot consistency: capture provider identities under lock, evaluate outside lock, then merge still-registered results with current static values under lock. This is not a globally simultaneous snapshot. Providers must be quick, nonblocking and internally consistent.
+Use native SavedStateRegistry on Android, with one aggregate provider per SavedState owner. Main-thread-only creation, access, registration, snapshot and disposal; no locks, workers, cross-thread merge, namespace tree, Any values or custom tagged Bundle codec. Encode typed values immediately with kotlinx.serialization into immutable serialized payloads; decode on read. Store byte arrays directly in Bundle. No mutable caller objects retained. Keep the facility optional; do not add DataStore or Room dependencies to Core merely to support this separation.
 
-Flow: application -> SavedState scope -> shared Store -> aggregate snapshot -> SavedStatePlatform -> native owner. Restore reverses the flow and validates entries before exposing them.
-
-## 3. Public API
-
-Current Kotlin API (signatures):
+## 3. Proposed API
 
 ```kotlin
-class SavedState(
-    platform: SavedStatePlatform,
-    limits: SavedStateLimits = SavedStateLimits(),
-    key: String = "appbase.savedState",
-    warning: (String) -> Unit = {}
-) : AutoCloseable {
-    val limits: SavedStateLimits
-    fun get(key: String): Any?
-    fun set(key: String, value: Any): Boolean
-    fun contains(key: String): Boolean
-    fun remove(key: String): Boolean
-    fun clear()
-    fun register(key: String, provider: () -> Any): AutoCloseable
-    fun scope(name: String): SavedState
-    fun size(): Long
-    override fun close()
-}
-interface SavedStatePlatform {
-    fun consume(key: String): Map<String, Any>?
-    fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable
-}
+val draft = saved.slot("editor.draft", Draft.serializer())
+val restored: Draft? = draft.get()
+val accepted: Boolean = draft.set(newDraft)
+draft.clear()
 ```
 
-| API | Contract |
+A slot is bound to a unique key and explicit serializer; duplicate registration is rejected. get returns null for absent or rejected restored data, with a diagnostic for decode/schema failure. set serializes and validates before replacing; false on encoding or size rejection, preserving previous accepted value. clear removes payload. Owner close unregisters provider and invalidates slots. Invalid keys, closed handles and wrong-thread calls are programmer errors. No generic Any API, scope hierarchy or arbitrary provider callbacks. Slot payload schema/version is the caller's responsibility; incompatible data is rejected with a diagnostic, never silently coerced. Diagnostics contain codes only, not data.
+
+## 4. Size and lifecycle
+
+Proposed defaults: 32 KiB per slot, 128 KiB aggregate serialized payload, 128 UTF-8 bytes per key, 64 slots. Maintain incremental byte accounting including keys; replacement is O(1) in slot count after serialization. Check actual aggregate Parcel size before publishing; reject an oversized candidate without truncation or silent entry loss. A native Parcel cap is local to this provider, not the entire Activity transaction. Restore validates aggregate and per-slot limits before decode; malformed or incompatible slots are rejected with diagnostics. Serialization may allocate before size checking; do not pass unbounded data. Register after native restoration and before save; dispose on owner thread. No guarantee of save delivery after force-stop or arbitrary process termination. Never store credentials, tokens, sensitive data, images or essential records.
+
+## 5. Navigation integration
+
+UIManager separately registers a single native provider for a versioned serializable NavSnapshot(version, selected, tabs), including complete PageEntry IDs and polymorphic NavKey payloads. Explicit serializers, byte/count bounds, root/route/ID validation and safe root fallback are required. Route parameters survive successful restore; sensitive parameters must not be serialized. No generic slot dependency is required for navigation. Page decorators own page-local state and ViewModel stores; transient presentations, jobs and Deferreds are not restored. See [UIManager](ui-manager.md).
+
+## 6. Potential problems and mitigations
+
+| Risk | Mitigation |
 |---|---|
-| get | Returns a defensive copy of a static/restored value or null. Does not execute providers. |
-| set | Validates and copies value, then atomically checks aggregate limits and writes. False on rejection; previous value retained. Cannot overwrite registered provider. |
-| contains | True for a static/restored entry or registered provider. |
-| remove | Removes both value and provider at key; returns whether either existed. |
-| clear | Removes all values/providers/accounting under the current namespace. |
-| register | Registers a deferred snapshot callback; duplicate provider or exhausted entry count rejected. Returned handle unregisters only that registration. A restored value may coexist with a provider. |
-| scope | Creates a child handle sharing the store; keys are slash-separated internally. Public segments must be nonblank and contain no slash. |
-| size | Estimated bytes of static values and last accepted provider snapshots, not live provider values or actual Parcel bytes. |
-| close | Idempotent; clears subtree and invalidates handle/descendants; root also disposes native registration. |
+| Schema changes | Explicit serializer and caller-owned schema/version; warn and reject incompatible payload |
+| Oversized write | Validate serialized bytes and aggregate native size before commit; retain old value |
+| Native transaction overflow | Conservative local cap; no claim of whole-Activity safety |
+| Wrong thread or reentry | Main-thread contract; no arbitrary provider callbacks |
+| Mutable object aliasing | Serialize on write, decode on read |
+| Sensitive data or durability | Use secure/persistent storage instead |
+| Navigation restore corruption | Versioned snapshot, validation and root fallback |
 
-Invalid keys and closed handles throw; unsupported or oversized values supplied to set return false. Registration failures throw. Warning callback receives diagnostic codes, not payloads. Current supported types: String, Boolean, Int, Long, Double, ByteArray, List and Map with String keys; nested values must be non-null. Other types rejected. Any is intentional to avoid a separate value hierarchy.
+## 7. Acceptance and source locations
 
-```kotlin
-val saved = SavedState(AndroidSavedState(activity.savedStateRegistry))
-val editor = saved.scope("editor")
-editor.set("draft", mapOf("name" to "Tokyo", "port" to 443))
-val draft = editor.get("draft") as? Map<*, *>
-val registration = saved.register("navigation") { uiManager.saveNavigation() }
-// Close registration on detach; close root on native owner disposal.
-```
+Test typed round trip, malformed/schema mismatch diagnostics, UTF-8 keys, duplicate slot rejection, exact limits, replacement accounting, rejected-write retention, Parcel overflow, owner close and wrong-thread rejection. Verify Activity recreation and actual process-death restoration; run Gradle unit tests and assembleDebug. No tests or migration are claimed complete.
 
-## 4. Limits and validation
-
-| Limit | Default |
-|---|---:|
-| Entry | 32,768 bytes |
-| Scope | 65,536 bytes |
-| Total | 131,072 bytes |
-| Full key / map key | 128 UTF-8 bytes |
-| Entries / collection elements | 256 |
-| Nesting depth | 8 (configurable 1–32) |
-
-Core estimates: 32 bytes per entry plus UTF-8 key; 16 bytes per value and map member plus payload. A remaining-byte budget charges during traversal and stops at first exceeded limit; depth and element count also checked. Aggregate validation includes ancestor namespace limits and total size. Static writes are atomic. Provider output is checked at save time, with insertion-order acceptance under the remaining aggregate budget. Native Parcel size is separately checked; Android currently drops entries that make the Bundle exceed its own cap. Core estimates are not exact heap or serialized sizes.
-
-## 5. Platform and lifecycle
-
-Target module placement: SavedState and AndroidSavedState both belong to Core, alongside UIManager and UIHost. Both classes now reside in Android Core; compilation and integration remain pending. Core must not depend on the optional visual component library. See [UIManager](ui-manager.md).
-
-AndroidSavedState(registry, maxBytes = 131072) encodes supported types into tagged Bundles, decodes on consume, and checks actual Parcel size. Register after the native registry is restored and before its save phase; dispose on the native owner thread. No guarantee of OS save delivery. UIManager.bindSavedState restores its navigation map then registers a provider; arbitrary route arguments are excluded. Unified app.savedState ownership and UIHost automatic binding remain pending. Native adapter and core limits must be configured coherently.
-
-## 6. Potential problems and solutions
-
-| Problem | Current mitigation / remaining solution |
-|---|---|
-| Oversized/deep/cyclic input | Incremental budget, depth and collection bounds; test early termination. Copy is a second pass: caller must not mutate input concurrently; consider one-pass bounded copy if needed. |
-| Concurrent writes exceed total | Shared lock makes aggregate validation and commit atomic. Test concurrent boundary writes. |
-| Deadlock from provider reentry | Execute providers and warnings outside lock; identity check rejects stale results. Provider must not block native save thread. |
-| Snapshot races | Static values taken at merge; providers sampled independently. Document this, do not claim global transaction. Newly registered providers may wait until next save. |
-| Parent close and duplicate scope handles | Parent chain invalidates descendants of that handle. Same-prefix handles can still write after another handle closes; define ownership policy and test before stable release. |
-| Provider failure | Core catches callback/validation/copy failure and omits entry. Android isolates malformed top-level entries during decode; malformed nested data rejects its containing entry. Whole-bundle overflow or unparcel failure can still prevent restore; per-entry native warnings are pending. |
-| Stale restored value | Unregister removes provider, not restored value; explicitly remove key if no fallback desired. Document and test. |
-| Reentrant/concurrent save | Current guard returns empty map; native owner should serialize saves. Test reentry and consider retaining last valid snapshot if required. |
-| Memory during snapshot | Providers are evaluated one at a time into aggregate-bounded staging, then reconciled against current static values and provider identities. Temporary copies and caller allocations are not a strict heap cap; concurrent removal and final-budget rejection need tests. |
-| Size accuracy | size reports estimates and last accepted provider sizes, which may be stale or differ from native accepted entries. Do not treat as exact current usage. |
-| Native overflow | Parcel cap protects this provider only, not the whole Activity transaction. Android currently drops overflow entries silently; add diagnostic reporting and test native overhead. |
-| Navigation entry count | Current flat navigation map uses four keys per instance plus metadata; default 256 collection limit may reject deep stacks. Use compact structured descriptors or explicitly bounded navigation capacity. |
-| Secrets and durability | Never store tokens, passwords or essential records; use secure/persistent storage instead. |
-| Native owner disposal | Android consume/register/unregister explicitly check the main Looper; registration close is idempotent. Root creation/close must follow platform thread rules; no automatic dispatch. Wrong-thread root close can leave registration undisposed because core closes before native disposal. Add lifecycle integration and tests. |
-
-## 7. Acceptance and verification
-
-Before Stable: compile core and Android UI; test every supported type and defensive copy; invalid/null/deep/cyclic values; UTF-8 and exact budget boundaries; ancestor/total/entry limits; concurrent writes and close; duplicate registration and stale handles; provider reentry/failure/unregister races; restoration and malformed native bundles; actual Parcel limits; Activity recreation and process recreation with UIManager; confirm no demo changes required for module tests. Verify native registration disposal and no external callback under Store lock. Current status: source implementation committed; these tests and app/UIHost integration are not verified. Do not mark Stable until acceptance passes.
-
-## 8. Source locations
-
-- android/core/src/main/kotlin/appbase/SavedState.kt
-- android/core/src/main/kotlin/appbase/AndroidSavedState.kt
-- android/core/src/main/kotlin/appbase/UIManager.kt
-
-## Android Core migration status
-
-UIHost and AndroidSavedState source files now reside in android/core/src/main/kotlin/appbase with package appbase. Core build configuration is Android Library with Compose; all Kotlin sources share src/main/kotlin/appbase; standalone smoke tests explicitly exclude UIHost.kt and AndroidSavedState.kt. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
-
-## UI Runtime integration decision
-
-UIManager retains explicit save/restore of selected tab and per-tab PageEntry lists through SavedStateRegistry with typed polymorphic route serialization, limits and validation. Navigation 3 decorators own page-local state and ViewModel stores. The existing flat navigation map and page-specific SaveableStateHolder are planned for removal, not yet removed. Generic SavedState remains unchanged. See [UIManager](ui-manager.md); native proof and integration remain pending.
+Source: android/core/src/main/kotlin/appbase/SavedState.kt, AndroidSavedState.kt, UIManager.kt. Replace the untyped store and tagged codec without compatibility aliases, coordinate callers and tests in the same migration.
