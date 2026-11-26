@@ -30,7 +30,7 @@ internal fun DemoApp(deviceEvent: String?, onDeviceEventHandled: () -> Unit) {
 }
 
 @Composable
-private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, deviceEvent: String?, onDeviceEventHandled: () -> Unit) = UIManager.Pages(tabs, pages) { ui, queue, snackbar ->
+private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, deviceEvent: String?, onDeviceEventHandled: () -> Unit) = UIHost.Pages(tabs, pages) { ui, queue, snackbar ->
     val tab = ui.rootIndex
     val stack = ui.stack
     val page = ui.page
