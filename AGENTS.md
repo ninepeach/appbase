@@ -4,23 +4,25 @@ These rules apply to every AI agent and human contributor working in this reposi
 
 ## Source of truth
 
-- `specs/redesign.md` is the approved target design (v2). Read it before changing code.
+- `specs/redesign.md` is the approved target design (v3). Read it before changing code.
 - Positioning: small but complete; simple interfaces, robust internals; use the native platform.
-- When code and a spec disagree, do not silently change either. Fix the code to match the spec, or propose a spec change in the PR description.
+- When code and a spec disagree, do not silently change either. Fix the code to match the spec, or update the spec in the same commit and explain why in the commit message.
 
 ## How to work
 
-1. Work on one migration phase from `specs/redesign.md` section 9 at a time, on its own branch (`phase-N-short-name`).
-2. Before pushing, run locally and make sure all pass:
-   ```
-   cd android
-   ./gradlew build
-   ```
-   (Until the wrapper exists, use `gradle --no-daemon -PwithDemo=true :core:assembleDebug :ui:assembleDebug :appbaseTest:assembleDebug` and `bash tests/run.sh`.)
-3. Open a pull request. Do not push directly to `main`. Never force-push `main`.
-4. In the PR description, list each acceptance criterion of the phase and its actual result (passed / failed / not run). Never report a test or build as passing unless you ran it.
-5. Update section 10 (implementation status) of `specs/redesign.md` in the same PR, recording only verified results.
-6. Before pushing, fetch and rebase on the latest `main`; never overwrite other contributors' changes.
+1. Work on one migration phase from `specs/redesign.md` section 9 at a time. Do not start the next phase in the same session unless asked.
+2. Pushing directly to `main` is allowed (no pull requests required), under these conditions:
+   - Before pushing, `git fetch` and rebase on the latest `origin/main`; never overwrite other contributors' changes.
+   - The build and all tests must pass locally:
+     ```
+     cd android
+     ./gradlew build
+     ```
+     (Until the wrapper exists: `gradle --no-daemon -PwithDemo=true :core:assembleDebug :ui:assembleDebug :appbaseTest:assembleDebug` and `bash tests/run.sh`.)
+   - Never force-push `main`. Never rewrite published history.
+   - If CI on `main` turns red after your push, fixing it is your next task.
+3. Commit messages and the final report list each acceptance criterion of the phase and its actual result (passed / failed / not run). Never report a build or test as passing unless you ran it.
+4. Update section 10 (implementation status) of `specs/redesign.md` in the same push, recording only verified results.
 
 ## Design rules to keep
 
