@@ -35,7 +35,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Node(val id: Int, val name: String, val host: String, val port: String, val protocol: String, val group: String = "Local")
 private val tabs = listOf("Home", "Config", "Data", "Settings")
 private val pages = listOf("Home","Config","Data","Settings","Node editor","Routing","Subscriptions","Configuration editor","Rules","Traffic","Connections","Logs","Appearance","Language","DNS","Notifications","Privacy","Advanced","Diagnostics","About","Licenses","Import","Onboarding")
 
@@ -55,7 +54,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
         save = { list -> ArrayList(list.map { n -> n.stack.value.joinToString("|") { it.id } }) },
         restore = { saved -> tabs.mapIndexed { i, root ->
             Navigation(pages.associateWith { Layer.SCREEN }, root).apply {
-                saved.getOrNull(i)?.split("|")?.drop(1)?.takeWhile { it in pages && it !in listOf("Node editor","Configuration editor") }?.forEach { push(it) }
+                saved.getOrNull(i)?.split("|")?.drop(1)?.takeWhile { it in pages }?.forEach { push(it) }
             }
         } }
     )
@@ -64,20 +63,16 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     val stack by nav.stack.collectAsState()
     val page = stack.last().id
     val holder = rememberSaveableStateHolder()
-    val nodes = remember { mutableStateListOf(Node(1,"Tokyo 01","tokyo.example","443","VLESS"),Node(2,"Hong Kong 01","hk.example","443","Shadowsocks"),Node(3,"Singapore 01","sg.example","443","Trojan")) }
-    val configBodies = remember { mutableStateMapOf<String,String>() }
-    val subscriptions = remember { mutableStateListOf<String>() }
-    var nextId by remember { mutableIntStateOf(4) }
-    var selected by remember { mutableIntStateOf(1) }
-    var editing by remember { mutableStateOf<Node?>(null) }
+    val model = rememberSaveable(saver=DemoModel.saver) { DemoModel() }
+    val nodes=model.nodes
+    val configs=model.configs
+    val configBodies=model.configBodies
+    val subscriptions=model.subscriptions
+    val logs=model.logs
+    val options=model.options
     var connected by rememberSaveable { mutableStateOf(false) }
     var routing by rememberSaveable { mutableStateOf("Config") }
     var language by rememberSaveable { mutableStateOf("System") }
-    val configs = remember { mutableStateListOf("Default","Direct","Proxy") }
-    var activeConfig by remember { mutableStateOf("Default") }
-    var configEdit by remember { mutableStateOf("") }
-    val logs = remember { mutableStateListOf("Demo initialized") }
-    val options = remember { mutableStateMapOf<String,Boolean>() }
     val queue = remember { PresentationQueue() }
     DisposableEffect(queue) { onDispose { queue.clear() } }
     fun confirm(title:String, action:()->Unit) { queue.enqueue(ModalRequest(title,title,"This changes the current demo session only.",action=action)) }
@@ -102,8 +97,8 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                             if(stack.size>1) TextButton(onClick={back()}) { Text("‹ Back") }
                             Text(demoLabel(page,language),style=MaterialTheme.typography.headlineSmall,modifier=Modifier.weight(1f))
-                            if(page=="Home") TextButton(onClick={editing=null;open("Node editor")}) { Text("+ Add") }
-                            if(page=="Config") TextButton(onClick={configEdit="";open("Configuration editor")}) { Text("+ Add") }
+                            if(page=="Home") TextButton(onClick={model.editing=null;open("Node editor")}) { Text("+ Add") }
+                            if(page=="Config") TextButton(onClick={model.configEdit="";open("Configuration editor")}) { Text("+ Add") }
                         }
                         holder.SaveableStateProvider("$tab:${stack.last().instance}") {
                             val opacity = remember { Animatable(0f) }
@@ -114,7 +109,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         Group {
                                             Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                                                 Text(if(connected) "Connected · simulated" else "Disconnected",Modifier.weight(1f))
-                                                Switch(connected,{ if(nodes.any{n->n.id==selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
+                                                Switch(connected,{ if(nodes.any{n->n.id==model.selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
                                             }
                                             Item(demoLabel("Global routing",language),routing){open("Routing")}
                                             Item("Connectivity test","Simulate"){notice="Simulated test complete";addLog("Connectivity test")}
@@ -129,14 +124,14 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                             TextButton(onClick={val sorted=nodes.sortedBy{it.name};nodes.clear();nodes.addAll(sorted)}){Text("Sort A–Z")}
                                             TextButton(onClick={val groups=listOf("All")+nodes.map{it.group}.distinct();groupFilter=groups[(groups.indexOf(groupFilter)+1)%groups.size]}){Text(groupFilter)}
                                         }
-                                        if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(selected in ids){connected=false;selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
+                                        if(batch) TextButton(enabled=marked.isNotEmpty(),onClick={val ids=marked.toSet();confirm("Delete selected nodes?"){nodes.removeAll{it.id in ids};if(model.selected in ids){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};marked.clear();batch=false}}){Text("Delete selected (${marked.size})")}
                                         Group {
                                             val visible=nodes.filter{it.name.contains(query,true)&&(groupFilter=="All"||it.group==groupFilter)}
                                             if(visible.isEmpty()) UIContent(ContentStatus.EMPTY,"No matching nodes") {}
                                             visible.forEach { n -> key(n.id) {
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                                    if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(selected==n.id,{selected=n.id;connected=false})
-                                                    Column(Modifier.weight(1f).clickable{selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
+                                                    if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(model.selected==n.id,{model.selected=n.id;connected=false})
+                                                    Column(Modifier.weight(1f).clickable{model.selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
                                                     if(batch) {
                                                         Text("☰", Modifier.padding(12.dp).pointerInput(n.id) {
                                                             var distance=0f
@@ -154,14 +149,14 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                         })
                                                         TextButton(onClick={val i=nodes.indexOf(n);if(i>0){nodes.removeAt(i);nodes.add(i-1,n)}}){Text("↑")}
                                                         TextButton(onClick={val i=nodes.indexOf(n);if(i>=0&&i<nodes.lastIndex){nodes.removeAt(i);nodes.add(i+1,n)}}){Text("↓")}
-                                                    } else TextButton(onClick={editing=n;open("Node editor")}){Text("Edit")}
+                                                    } else TextButton(onClick={model.editing=n;open("Node editor")}){Text("Edit")}
                                                 }; HorizontalDivider()
                                             } }
                                         }
                                         Group { Item(demoLabel("Subscriptions",language),"Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
                                     }
                                     "Node editor" -> {
-                                        val original=editing
+                                        val original=model.editing
                                         var name by rememberSaveable { mutableStateOf(original?.name.orEmpty()) }
                                         var host by rememberSaveable { mutableStateOf(original?.host.orEmpty()) }
                                         var port by rememberSaveable { mutableStateOf(original?.port ?: "443") }
@@ -173,21 +168,21 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         OutlinedTextField(host,{host=it},label={Text("Server address")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(port,{port=it},label={Text("Port")},isError=port.toIntOrNull()?.let{it in 1..65535}!=true,modifier=Modifier.fillMaxWidth())
                                         Group { listOf("VLESS","Shadowsocks","Trojan","SOCKS5","HTTP").forEach { p -> Choice(p,protocol==p){protocol=p} } }
-                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
-                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(selected==original.id){connected=false;selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
+                                        Button(enabled=valid,onClick={val n=Node(original?.id ?: model.nextId++,name.trim(),host.trim(),port,protocol,group.trim().ifBlank{"Local"});val i=nodes.indexOfFirst{it.id==n.id};if(i<0)nodes.add(n) else nodes[i]=n;notice="Node saved in memory";back()},modifier=Modifier.fillMaxWidth()){Text("Save")}
+                                        if(original!=null) OutlinedButton(onClick={confirm("Delete node?") {nodes.removeAll{it.id==original.id};if(model.selected==original.id){connected=false;model.selected=nodes.firstOrNull()?.id ?: -1};back()}},modifier=Modifier.fillMaxWidth()){Text("Delete node")}
                                     }
                                     "Routing" -> Group { listOf("Config","Proxy","Direct","Scene").forEach{Choice(it,routing==it){routing=it;back()}} }
                                     "Config" -> Group {
-                                        configs.forEach { c -> Item(c,if(c==activeConfig)"Active" else ""){configEdit=c;open("Configuration editor")} }
+                                        configs.forEach { c -> Item(c,if(c==model.activeConfig)"Active" else ""){model.configEdit=c;open("Configuration editor")} }
                                         Item("Rules"){open("Rules")};Item("Import configuration"){open("Import")}
                                     }
                                     "Configuration editor" -> {
-                                        var name by rememberSaveable { mutableStateOf(configEdit) }
-                                        var body by rememberSaveable { mutableStateOf(configBodies[configEdit] ?: "# Demo configuration\n[General]\n") }
+                                        var name by rememberSaveable { mutableStateOf(model.configEdit) }
+                                        var body by rememberSaveable { mutableStateOf(configBodies[model.configEdit] ?: "# Demo configuration\n[General]\n") }
                                         OutlinedTextField(name,{name=it},label={Text("Name")},modifier=Modifier.fillMaxWidth())
                                         OutlinedTextField(body,{body=it},label={Text("Configuration preview")},minLines=8,modifier=Modifier.fillMaxWidth())
-                                        Button(enabled=name.isNotBlank(),onClick={if(name != configEdit && configEdit in configs){configs.remove(configEdit);configBodies.remove(configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
-                                        if(configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(configEdit);configBodies.remove(configEdit);if(activeConfig==configEdit)activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
+                                        Button(enabled=name.isNotBlank(),onClick={if(name != model.configEdit && model.configEdit in configs){configs.remove(model.configEdit);configBodies.remove(model.configEdit)};if(name !in configs)configs.add(name);configBodies[name]=body;model.activeConfig=name;back()},modifier=Modifier.fillMaxWidth()){Text("Save and activate (mock)")}
+                                        if(model.configEdit in configs) TextButton(onClick={confirm("Delete configuration?") {configs.remove(model.configEdit);configBodies.remove(model.configEdit);if(model.activeConfig==model.configEdit)model.activeConfig=configs.firstOrNull().orEmpty();back()}}){Text("Delete")}
                                     }
                                     "Data" -> {
                                         Group { Item("Upload",if(connected)"12 MB" else "0 MB"){open("Traffic")};Item("Download",if(connected)"86 MB" else "0 MB"){open("Traffic")};Item("Connections"){open("Connections")};Item("Logs"){open("Logs")} }
