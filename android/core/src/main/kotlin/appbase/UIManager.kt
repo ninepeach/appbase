@@ -80,6 +80,81 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
             input.id.takeIf { foreground }, foreground, prompts.toList())
     }
     private fun publish() { mutableState.value = snapshot() }
+
+    /** Attach once per native owner, before rendering. Caller closes registration on detach. */
+    fun bindSavedState(savedState: SavedState, key: String = "appbase.navigation"): AutoCloseable {
+        val saved = runCatching { savedState.consume(key) }.getOrNull()
+        if (saved != null) restoreNavigation(saved)
+        return savedState.register(key) { saveNavigation() }
+    }
+
+    @Synchronized fun saveNavigation(): Map<String, String> {
+        if (closed) return emptyMap()
+        val output = linkedMapOf("version" to "1", "selected" to selected)
+        val retained = mutableSetOf<String>()
+        var index = 0
+        for (item in entries.values) {
+            if (!item.route.restorable || item.route.layer !in setOf(UILayer.PAGE, UILayer.MODAL)) continue
+            if (item.parent != null && item.parent !in retained) continue
+            val prefix = "p.${index}."
+            output[prefix + "id"] = item.id
+            output[prefix + "route"] = item.route.name
+            output[prefix + "tab"] = item.tab
+            output[prefix + "parent"] = item.parent.orEmpty()
+            // Arguments are opt-in: do not persist arbitrary credentials or payloads.
+            retained.add(item.id)
+            index++
+        }
+        output["count"] = index.toString()
+        return if (output.entries.sumOf { it.key.length.toLong() + it.value.length } <= 32768) output else emptyMap()
+    }
+
+    @Synchronized fun restoreNavigation(saved: Map<String, String>): Boolean {
+        if (closed || entries.size != rootIds.size || saved["version"] != "1") return false
+        if (saved.entries.sumOf { it.key.length.toLong() + it.value.length } > 32768) return false
+        val tab = saved["selected"] ?: return false
+        if (tab !in roots) return false
+        val count = saved["count"]?.toIntOrNull() ?: return false
+        if (count !in roots.size..capacity) return false
+        val restored = linkedMapOf<String, UIInstance>()
+        val restoredRoots = mutableSetOf<String>()
+        val lastPage = mutableMapOf<String, String>()
+        val lastModal = mutableMapOf<String, String>()
+        for (i in 0 until count) {
+            val p = "p.$i."
+            val id = saved[p + "id"] ?: return false
+            if (runCatching { UUID.fromString(id).toString() == id }.getOrDefault(false).not() || id in restored) return false
+            val route = definitions[saved[p + "route"]] ?: return false
+            val root = saved[p + "tab"] ?: return false
+            if (root !in roots || !route.restorable) return false
+            val parent = saved[p + "parent"]?.ifEmpty { null }
+            when (route.layer) {
+                UILayer.PAGE -> {
+                    if (parent == null) {
+                        if (root in lastPage || roots[root] != route.name) return false
+                        restoredRoots.add(id)
+                    } else if (parent != lastPage[root] || root in lastModal) return false
+                    lastPage[root] = id
+                }
+                UILayer.MODAL -> {
+                    if (parent == null || parent != (lastModal[root] ?: lastPage[root])) return false
+                    lastModal[root] = id
+                }
+                else -> return false
+            }
+            restored[id] = UIInstance(id, route, root, parent, emptyMap())
+        }
+        if (lastPage.keys != roots.keys) return false
+        entries.keys.toList().forEach { remove(it, UIResult.Cancelled) }
+        rootIds.clear()
+        for (item in restored.values) {
+            add(item.route.name, item.tab, item.parent, item.arguments, item.route.layer, item.id)
+        }
+        rootIds.addAll(restoredRoots)
+        selected = tab
+        publish()
+        return true
+    }
     @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String {
         check(presentations().none { it.route.blocking }) { "Close blocking presentation first" }
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
