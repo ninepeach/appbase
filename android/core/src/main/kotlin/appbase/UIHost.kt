@@ -17,9 +17,11 @@ import androidx.compose.ui.window.DialogProperties
  */
 class UIHost(
     private val manager: UIManager,
-    private val renderers: Map<String, @Composable (UIInstance) -> Unit>,
+    renderers: Map<String, @Composable (UIInstance) -> Unit>,
     private val lifecycle: AppLifecycle? = null,
 ) {
+    private val renderers = renderers.toMap()
+
     fun mount(activity: ComponentActivity, theme: @Composable (@Composable () -> Unit) -> Unit = { content -> content() }) {
         activity.setContent { theme { Content() } }
     }
@@ -29,26 +31,29 @@ class UIHost(
         val notices by manager.notifications.collectAsState()
         val holder = rememberSaveableStateHolder()
         val snackbar = remember { SnackbarHostState() }
-        var previous by remember { mutableStateOf(emptySet<String>()) }
+        var previous by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(arrayListOf<String>()) }
         val live = state.instances.map { it.id }.toSet()
         LaunchedEffect(live) {
             (previous - live).forEach { holder.removeState(it) }
-            previous = live
+            previous = ArrayList(live)
         }
         LaunchedEffect(lifecycle, manager) {
             lifecycle?.phase?.collect { manager.setForeground(it == AppPhase.FOREGROUND) }
         }
         val notice = notices.firstOrNull()
-        LaunchedEffect(notice, notices.size, state.foreground) {
+        LaunchedEffect(notice, state.foreground) {
             if (notice != null && state.foreground) {
-                snackbar.showSnackbar(notice, duration = SnackbarDuration.Short)
-                manager.consumeNotice(notice)
+                while (manager.notifications.value.firstOrNull() == notice) {
+                    snackbar.showSnackbar(notice, duration = SnackbarDuration.Short)
+                    manager.consumeNotice(notice)
+                }
             }
         }
         BackHandler(enabled = state.foreground && manager.canGoBack()) { manager.back() }
         val visible = state.instances.filter { it.id in state.visible }
         val page = visible.lastOrNull { it.route.layer == UILayer.PAGE }
-        val blocker = visible.firstOrNull { it.id == state.interactive && it.route.blocking && it.route.layer != UILayer.PAGE }
+        val blocker = visible.filter { it.route.blocking && it.route.layer != UILayer.PAGE }
+            .maxWithOrNull(compareBy<UIInstance> { it.route.layer.ordinal }.thenBy { visible.indexOf(it) })
         Box(Modifier.fillMaxSize()) {
             if (page != null) {
                 holder.SaveableStateProvider(page.id) { renderers.getValue(page.route.name)(page) }
