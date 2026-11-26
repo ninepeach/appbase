@@ -9,7 +9,7 @@ AppLifecycle(parent: CoroutineScope, events: EventBus? = null); phase: StateFlow
 Example: lifecycle.transition(AppPhase.FOREGROUND); lifecycle.foregroundScope()?.launch { refresh() }.
 
 ## Problems and solutions
-Duplicate phase is no-op. CLOSED terminal. New state is published before old scope cancellation, which runs outside monitor. Cancellation is cooperative; old work may briefly overlap new scope. Native Activity/process binding and parent cancellation reconciliation remain pending. Event notification can be dropped. Do not treat lock screen as process death.
+Duplicate phase is no-op. CLOSED terminal. New state is published before old scope cancellation, which runs outside monitor. Cancellation is cooperative; old work may briefly overlap new scope. Parent job completion marks CLOSED and clears the active scope; foregroundScope returns null as soon as the job or child scope is inactive. Explicit close marks CLOSED before cancellation. Completion may be delayed by non-cooperative children; native Activity/process binding remains pending. Event notification can be dropped. Do not treat lock screen as process death.
 
 ## Acceptance
 Test transitions, duplicate callbacks, scope cancellation, close idempotence, reentry and concurrent close; device background/foreground and recreation. Source modified; tests/build not verified.
