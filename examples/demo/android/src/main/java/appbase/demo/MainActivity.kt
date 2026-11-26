@@ -70,23 +70,23 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     var notice by remember { mutableStateOf("") }
     LaunchedEffect(notice) { if (notice.isNotEmpty()) { queue.notify(notice); notice = "" } }
     fun open(p: String) { nav.push(p) }
-    fun back() { nav.pop() }
+    fun back() { val key="$tab:${nav.stack.value.last().instance}"; if(nav.pop()) holder.removeState(key) }
     fun addLog(s: String) { logs.add(0,s); if(logs.size > 100) logs.removeAt(logs.lastIndex) }
-    BackHandler(stack.size > 1 || tab != 0) { if (!nav.pop()) tab = 0 }
+    BackHandler(stack.size > 1 || tab != 0) { if (nav.stack.value.size > 1) back() else tab = 0 }
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             val wide = maxWidth >= 600.dp
             Row(Modifier.fillMaxSize()) {
-                if (wide) NavigationRail { tabs.forEachIndexed { i,t -> NavigationRailItem(selected = tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(t)}) } }
+                if (wide) NavigationRail { tabs.forEachIndexed { i,t -> NavigationRailItem(selected = tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } }
                 Scaffold(
                     modifier = Modifier.weight(1f),
                     snackbarHost = { SnackbarHost(snackbar) },
-                    bottomBar = { if (!wide && stack.size == 1) NavigationBar { tabs.forEachIndexed { i,t -> NavigationBarItem(selected=tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(t)}) } } }
+                    bottomBar = { if (!wide && stack.size == 1) NavigationBar { tabs.forEachIndexed { i,t -> NavigationBarItem(selected=tab==i,onClick={tab=i},icon={Text(listOf("⌂","▤","∿","⚙")[i])},label={Text(demoLabel(t,language))}) } } }
                 ) { padding ->
                     Column(Modifier.fillMaxSize().padding(padding)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                             if(stack.size>1) TextButton(onClick={back()}) { Text("‹ Back") }
-                            Text(page,style=MaterialTheme.typography.headlineSmall,modifier=Modifier.weight(1f))
+                            Text(demoLabel(page,language),style=MaterialTheme.typography.headlineSmall,modifier=Modifier.weight(1f))
                             if(page=="Home") TextButton(onClick={editing=null;open("Node editor")}) { Text("+ Add") }
                             if(page=="Config") TextButton(onClick={configEdit="";open("Configuration editor")}) { Text("+ Add") }
                         }
@@ -99,7 +99,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                 Text(if(connected) "Connected · simulated" else "Disconnected",Modifier.weight(1f))
                                                 Switch(connected,{ if(nodes.any{n->n.id==selected}) { connected=it;addLog(if(it)"Simulated connection started" else "Disconnected") } else notice="Select a node first" })
                                             }
-                                            Item("Global routing",routing){open("Routing")}
+                                            Item(demoLabel("Global routing",language),routing){open("Routing")}
                                             Item("Connectivity test","Simulate"){notice="Simulated test complete";addLog("Connectivity test")}
                                         }
                                         var query by rememberSaveable { mutableStateOf("") }
@@ -124,7 +124,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                 }; HorizontalDivider()
                                             }
                                         }
-                                        Group { Item("Subscriptions","Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
+                                        Group { Item(demoLabel("Subscriptions",language),"Manage"){open("Subscriptions")};Item("Import node"){open("Import")} }
                                     }
                                     "Node editor" -> {
                                         val original=editing
@@ -168,11 +168,11 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text("Clear")}
                                     }
                                     "Settings" -> {
-                                        Group { Item("Appearance",appearance){open("Appearance")};Item("Language",language){open("Language")};Item("DNS"){open("DNS")};Item("Notifications"){open("Notifications")};Item("Privacy"){open("Privacy")};Item("Advanced"){open("Advanced")} }
+                                        Group { Item(demoLabel("Appearance",language),appearance){open("Appearance")};Item(demoLabel("Language",language),language){open("Language")};Item("DNS"){open("DNS")};Item("Notifications"){open("Notifications")};Item("Privacy"){open("Privacy")};Item("Advanced"){open("Advanced")} }
                                         Group { Item("Diagnostics"){open("Diagnostics")};Item("About"){open("About")};Item("Onboarding"){open("Onboarding")} }
                                     }
                                     "Appearance" -> Group { listOf("System","Light","Dark").forEach{Choice(it,appearance==it){setAppearance(it)}} }
-                                    "Language" -> { Text("Language preference preview; translations not implemented.");Group{listOf("System","English","繁體中文","简体中文","日本語").forEach{Choice(it,language==it){language=it}}} }
+                                    "Language" -> { Text(demoLabel("Language",language));Group{listOf("System","English","繁體中文","简体中文","日本語").forEach{Choice(it,language==it){language=it}}} }
                                     "DNS","Notifications","Privacy","Advanced" -> Group {
                                         val names=when(page){"DNS"->listOf("Use custom DNS","DNS over HTTPS");"Notifications"->listOf("Connection notifications","Error notifications");"Privacy"->listOf("Redact logs","Hide server address");else->listOf("Auto connect","Verbose logging","Show diagnostics")}
                                         names.forEach{n->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(n,Modifier.weight(1f));Switch(options[n]?:false,{options[n]=it})};HorizontalDivider()}
@@ -204,4 +204,33 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
         }
         PresentationHost(queue,snackbar)
     }
+}
+
+private fun demoLabel(key:String,language:String):String {
+    val locale=if(language=="System") java.util.Locale.getDefault().language else language
+    val index=when(locale){"繁體中文"->0;"简体中文","zh"->1;"日本語","ja"->2;else->return key}
+    return mapOf(
+        "Home" to listOf("首頁","首页","ホーム"),
+        "Config" to listOf("配置","配置","設定ファイル"),
+        "Data" to listOf("數據","数据","データ"),
+        "Settings" to listOf("設定","设置","設定"),
+        "Appearance" to listOf("外觀","外观","外観"),
+        "Language" to listOf("語言","语言","言語"),
+        "Node editor" to listOf("節點編輯","节点编辑","ノード編集"),
+        "Routing" to listOf("路由","路由","ルーティング"),
+        "Global routing" to listOf("全局路由","全局路由","グローバルルーティング"),
+        "Subscriptions" to listOf("訂閱","订阅","購読"),
+        "Configuration editor" to listOf("配置編輯","配置编辑","設定編集"),
+        "Rules" to listOf("規則","规则","ルール"),
+        "Traffic" to listOf("流量","流量","通信量"),
+        "Connections" to listOf("連線","连接","接続"),
+        "Logs" to listOf("日誌","日志","ログ"),
+        "Notifications" to listOf("通知","通知","通知"),
+        "Privacy" to listOf("私隱","隐私","プライバシー"),
+        "Advanced" to listOf("進階","高级","詳細設定"),
+        "Diagnostics" to listOf("診斷","诊断","診断"),
+        "About" to listOf("關於","关于","情報"),
+        "Import" to listOf("匯入","导入","インポート"),
+        "Onboarding" to listOf("使用指南","使用指南","ガイド")
+    )[key]?.get(index) ?: key
 }
