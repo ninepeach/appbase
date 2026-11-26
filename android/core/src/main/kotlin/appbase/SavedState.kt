@@ -47,21 +47,51 @@ class SavedState private constructor(
                 else -> error("Unsupported saved state type")
             }
         }
-        fun measure(value: Any, depth: Int = 0): Long {
+        /** Charge before descending or allocating UTF-8 buffers. Stop at the first exceeded budget. */
+        private class Budget(private var remaining: Long) {
+            fun charge(n: Long) {
+                require(n >= 0 && n <= remaining) { "Saved state size exceeded" }
+                remaining -= n
+            }
+            fun text(value: String) {
+                // UTF-8 uses at least one byte per UTF-16 code unit, except surrogate
+                // pairs which use four bytes for two units.
+                require(value.length.toLong() <= remaining)
+                charge(value.toByteArray(Charsets.UTF_8).size.toLong())
+            }
+            fun left(): Long = remaining
+        }
+        private fun measure(value: Any, budget: Budget, depth: Int = 0) {
             require(depth <= limits.maxDepth)
-            return when (value) {
-                is String -> 16L + value.toByteArray().size
-                is Boolean, is Int, is Long, is Double -> 16L
-                is ByteArray -> 16L + value.size
-                is List<*> -> { require(value.size <= limits.maxEntries); 16L + value.sumOf { measure(requireNotNull(it), depth + 1) } }
-                is Map<*, *> -> { require(value.size <= limits.maxEntries); 16L + value.entries.sumOf { (k,v) ->
-                    require(k is String && k.toByteArray().size <= limits.maxKeyBytes)
-                    16L + k.toByteArray().size + measure(requireNotNull(v), depth + 1)
-                } }
+            budget.charge(16)
+            when (value) {
+                is String -> budget.text(value)
+                is Boolean, is Int, is Long, is Double -> Unit
+                is ByteArray -> budget.charge(value.size.toLong())
+                is List<*> -> {
+                    require(value.size <= limits.maxEntries)
+                    for (item in value) measure(requireNotNull(item), budget, depth + 1)
+                }
+                is Map<*, *> -> {
+                    require(value.size <= limits.maxEntries)
+                    for ((k, v) in value) {
+                        require(k is String && k.length <= limits.maxKeyBytes &&
+                            k.toByteArray(Charsets.UTF_8).size <= limits.maxKeyBytes)
+                        budget.charge(16)
+                        budget.text(k)
+                        measure(requireNotNull(v), budget, depth + 1)
+                    }
+                }
                 else -> error("Unsupported saved state type")
             }
         }
-        fun bytes(key: String, value: Any): Long = 32L + key.toByteArray().size + measure(value)
+        fun bytes(key: String, value: Any): Long {
+            val budget = Budget(limits.maxEntryBytes.toLong())
+            budget.charge(32)
+            budget.text(key)
+            measure(value, budget)
+            return limits.maxEntryBytes.toLong() - budget.left()
+        }
         fun valid(key: String, value: Any, target: Map<String, Any>): Boolean {
             val n = runCatching { bytes(key, value) }.getOrNull() ?: return false
             if (n > limits.maxEntryBytes || (key !in target && target.size >= limits.maxEntries)) return false
