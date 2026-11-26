@@ -150,3 +150,7 @@ Prioritize UI completion, runtime hardening, foundation libraries, core platform
 ## Core and optional UI library placement
 
 Core is the native application runtime and includes UIManager, UIHost, SavedState and its native adapter, alongside communication, lifecycle and diagnostics. UIManager and UIHost remain separate classes documented together in [UIManager](ui-manager.md). UIHost depends on UIManager, never the reverse. Core may depend on native SDK and UI frameworks but must not depend on the optional UI library or impose product visual styling. DesignSystem and reusable visual components belong to the optional UI library, which may depend on Core. Foundation libraries remain independently usable. Android Core is targeted to become an Android library with Compose support; this placement decision does not assert that migration or tests have been completed.
+
+## Android Core migration status
+
+UIHost and AndroidSavedState source files now reside in android/core/src/main/java/appbase with package appbase. Core build configuration is Android Library with Compose; pure Kotlin sources remain under src/main/kotlin for standalone smoke tests. UIHost.mount(activity, theme) accepts application-supplied composable theme wrapper (default identity). Earlier target-placement statements are superseded by this source migration. No compatibility aliases. Demo migration remains deferred. Build and native verification are pending; source migration does not establish successful compilation.
