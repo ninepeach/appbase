@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
@@ -52,14 +53,21 @@ class UIHost(
         BackHandler(enabled = state.foreground && manager.canGoBack()) { manager.back() }
         val visible = state.instances.filter { it.id in state.visible }
         val page = visible.lastOrNull { it.route.layer == UILayer.PAGE }
-        val blocker = visible.filter { it.route.blocking && it.route.layer != UILayer.PAGE }
-            .maxWithOrNull(compareBy<UIInstance> { it.route.layer.ordinal }.thenBy { visible.indexOf(it) })
+        // Blocking priority is decided by UIManager only; never recompute it here.
+        val blocker = state.blocker?.let { id -> visible.firstOrNull { it.id == id } }
+        val toasts = visible.filter { it.route.layer == UILayer.TOAST }
         Box(Modifier.fillMaxSize()) {
             if (page != null) {
                 holder.SaveableStateProvider(page.id) { renderers.getValue(page.route.name)(page) }
             }
-            visible.filter { it.route.layer != UILayer.PAGE && !it.route.blocking && it.route.layer != UILayer.TOAST }.forEach { item ->
+            visible.filter { it.route.layer != UILayer.PAGE && it.route.layer != UILayer.TOAST && !it.route.blocking }.forEach { item ->
                 key(item.id) { holder.SaveableStateProvider(item.id) { renderers.getValue(item.route.name)(item) } }
+            }
+            Column(
+                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                toasts.forEach { item -> key(item.id) { renderers.getValue(item.route.name)(item) } }
             }
             SnackbarHost(snackbar, Modifier.align(androidx.compose.ui.Alignment.BottomCenter))
         }

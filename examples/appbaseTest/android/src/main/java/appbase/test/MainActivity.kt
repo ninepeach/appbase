@@ -263,7 +263,7 @@ class MainActivity : ComponentActivity() {
                     mapOf("main" to "root"),
                 )
                 try {
-                    val page = manager.openPage("page")
+                    val page = checkNotNull(manager.openPage("page"))
                     val queued = manager.enqueueModal("modal", "demo.queue")
                     check(queued != null && manager.isAlive(queued))
                     check(manager.back() && !manager.isAlive(queued))

@@ -62,11 +62,14 @@ fun main() = runBlocking {
         val task = launch { client.execute(Slow) }; delay(10); task.cancelAndJoin(); check(task.isCancelled)
         val nav = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE), UIRoute("dialog", UILayer.MODAL), UIRoute("overlay", UILayer.OVERLAY)), mapOf("home" to "home"))
         try {
-            val overlay = nav.showOverlay("overlay")
-            val detail = nav.openPage("detail")
+            val overlay = checkNotNull(nav.showOverlay("overlay"))
+            val detail = checkNotNull(nav.openPage("detail"))
             check(overlay !in nav.state.value.visible && nav.isAlive(overlay))
-            val dialog = nav.openModal("dialog")
-            check(nav.back()); check(!nav.isAlive(dialog)); check(!nav.close(dialog))
+            val dialog = checkNotNull(nav.openModal("dialog"))
+            check(nav.state.value.blocker == dialog && nav.state.value.interactive == dialog)
+            check(nav.openPage("detail") == null)
+            check(nav.back())
+            check(nav.state.value.blocker == null); check(!nav.isAlive(dialog)); check(!nav.close(dialog))
             val result = checkNotNull(nav.result(detail))
             check(nav.close(detail)); check(result.await() == UIResult.Cancelled)
             check(overlay in nav.state.value.visible)
@@ -83,10 +86,28 @@ fun main() = runBlocking {
         repeat(1000) { lifecycle.transition(AppPhase.BACKGROUND); lifecycle.transition(AppPhase.FOREGROUND) }
         val bounded = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE)), mapOf("home" to "home"), capacity = 2)
         try {
-            bounded.openPage("detail")
-            check(runCatching { bounded.openPage("detail") }.isFailure)
+            check(bounded.openPage("detail") != null)
+            check(bounded.openPage("detail") == null)
             check(bounded.back() && !bounded.back())
         } finally { bounded.close() }
+        val tabs = UIManager(
+            listOf(UIRoute("home", UILayer.PAGE), UIRoute("me", UILayer.PAGE), UIRoute("pay", UILayer.MODAL, dismissible = false),
+                UIRoute("toast", UILayer.TOAST), UIRoute("banner", UILayer.SYSTEM)),
+            mapOf("home" to "home", "me" to "me"))
+        try {
+            val pay = checkNotNull(tabs.openModal("pay"))
+            check(!tabs.selectRoot("me") && tabs.state.value.tab == "home")
+            check(tabs.back() && tabs.isAlive(pay))
+            val banner = checkNotNull(tabs.showSystem("banner"))
+            check(tabs.state.value.blocker == banner)
+            check(tabs.close(banner) && tabs.state.value.blocker == pay)
+            check(tabs.close(pay) && tabs.selectRoot("me"))
+            val first = checkNotNull(tabs.toast("toast", durationMs = 50))
+            check(first in tabs.state.value.visible && tabs.state.value.interactive != first)
+            withTimeout(2_000) { while (tabs.isAlive(first)) delay(10) }
+            val many = (1..10).map { checkNotNull(tabs.toast("toast", durationMs = 60_000)) }
+            check(many.count { tabs.isAlive(it) } == 3 && many.takeLast(3).all { tabs.isAlive(it) })
+        } finally { tabs.close() }
         val logger = Logger(2)
         repeat(3) { logger.info("test.$it") }
         check(logger.snapshot().map { it.code } == listOf("test.1", "test.2"))
@@ -116,6 +137,7 @@ fun main() = runBlocking {
         println("PASS: bounded logs, crash report redaction, wake routing and deduplication")
         println("PASS: lifecycle transitions, scope cancellation, bounded stack")
         println("PASS: navigation, modal priority, root protection")
+        println("PASS: rejection without throwing, single blocker source, tab lock, toast expiry and eviction")
         println("PASS: command, serial concurrency, state, channel, capability, timeout, event, cancellation")
     } finally { host.close() }
 }

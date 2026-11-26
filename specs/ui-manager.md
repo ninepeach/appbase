@@ -24,11 +24,11 @@ internal data class PageEntry(val id: String, val key: NavKey)
 val id = ui.openPage(ServerDetail("tokyo-01"))
 ```
 
-openPage(key: NavKey): String; selectRoot(tab: String); back(): Boolean; close(id: String): Boolean; scope(id: String): CoroutineScope?. Existing non-page presentation operations retain their ownership and queue semantics; their concrete signatures are subject to implementation review. Unknown routes, invalid owners, duplicate IDs and capacity violations must be explicit failures. Stale close returns false. Roots cannot be ordinarily popped. No framework ID in product route classes. No public mutable back stack.
+openPage(key: NavKey): String?; selectRoot(tab: String): Boolean; back(): Boolean; close(id: String): Boolean; scope(id: String): CoroutineScope?. Existing non-page presentation operations retain their ownership and queue semantics; their concrete signatures are subject to implementation review. Programming errors (unknown routes, wrong layer, invalid owners, duplicate IDs, oversized arguments) throw. Runtime rejections (manager closed, a blocking presentation owns input, instance capacity full) return null or false and never throw, so late callbacks cannot crash the app. Stale close returns false. Roots cannot be ordinarily popped. No framework ID in product route classes. No public mutable back stack.
 
 ## 4. Presentation and ownership
 
-Retain OVERLAY, MODAL, TOAST and SYSTEM layers. Modal parent/child stack is separate from independent prompt queue. Queue is bounded, priority ordered with FIFO ties, deduplicated and expiry checked; unrelated prompts do not interrupt a modal chain. Page-owned presentations and scopes close when their PageEntry is removed; nested modal closure cascades. Covered or inactive tabs retain live page state and owned resources according to foreground policy. Nonblocking notices do not steal input. Nondismissible blockers consume back. Use native dialog, snackbar and accessibility/focus facilities. No polling thread.
+Retain OVERLAY, MODAL, TOAST and SYSTEM layers. Modal parent/child stack is separate from independent prompt queue. Queue is bounded, priority ordered with FIFO ties, deduplicated and expiry checked; unrelated prompts do not interrupt a modal chain. Page-owned presentations and scopes close when their PageEntry is removed; nested modal closure cascades. Covered or inactive tabs retain live page state and owned resources according to foreground policy. Nonblocking notices do not steal input. TOAST instances close automatically after their duration (default 4 s, max 60 s) through a delay in their own instance scope; at most `toastCapacity` (default 3) are live and the oldest is closed to admit a new one, so toasts can never exhaust instance capacity. `UISnapshot.blocker` is the single source of the blocking presentation that owns input and back; UIHost renders from it and must not recompute layer priority. Nondismissible blockers consume back. Use native dialog, snackbar and accessibility/focus facilities. No polling thread.
 
 ### 4.1 Ownership and visibility
 
@@ -43,7 +43,7 @@ Every modal, overlay and system presentation has an immutable parent instance ID
 `close(id, result = UIResult.Cancelled): Boolean` closes the exact live non-root instance and all descendants, never an unrelated instance. Stale IDs and protected roots return false. Descendants complete with Cancelled; the explicitly closed target receives the supplied result (Cancelled by default). Remove ownership records, pending prompts and deduplication records atomically before cancelling jobs or completing Deferreds, so callbacks cannot observe a half-closed tree. Each live instance exposes `scope(id): CoroutineScope?` and `result(id): Deferred<UIResult>?`. Capture the Deferred before closing; after removal lookup returns null. Scope cancellation is cooperative and does not imply synchronous termination. Logical close is independent of animation or composition disposal.
 
 ```kotlin
-val id = ui.openModal("confirm")
+val id = ui.openModal("confirm") ?: return // rejected: blocked or full
 val pending = requireNotNull(ui.result(id))
 val result = pending.await()
 ```
