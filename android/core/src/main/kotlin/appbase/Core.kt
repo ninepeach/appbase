@@ -4,9 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlin.reflect.KClass
-import java.util.concurrent.atomic.AtomicLong
 
 interface Command<R>
 interface ChannelCommand<T>
@@ -32,14 +30,20 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
     private val scope = CoroutineScope(context.scope.coroutineContext + SupervisorJob(context.scope.coroutineContext[Job]) + Dispatchers.Default)
     @Volatile private var started = false
     @Volatile private var closed = false
-    init { require(workers > 0 && capacity > 0); repeat(workers) { scope.launch { consume(parallel) } }; scope.launch { consume(serial) } }
+    init { require(workers > 0 && capacity > 0) }
+    private val workerCount = workers
     @Synchronized fun <C : Command<R>, R> register(type: KClass<C>, id: String, policy: Execution = Execution(), handler: suspend (C) -> R) {
         check(!started && !closed); require(id.isNotBlank() && type !in commands && ids.add(id)); commands[type] = Entry(id, policy) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
     @Synchronized fun <C : ChannelCommand<T>, T> registerChannel(type: KClass<C>, id: String, handler: (C) -> Flow<T>) {
         check(!started && !closed); require(id.isNotBlank() && type !in streams && ids.add(id)); streams[type] = StreamEntry(id) { @Suppress("UNCHECKED_CAST") handler(it as C) }
     }
-    @Synchronized internal fun start() { check(!closed); started = true }
+    @Synchronized internal fun start() {
+        check(!closed && !started)
+        repeat(workerCount) { scope.launch { consume(parallel) } }
+        scope.launch { consume(serial) }
+        started = true
+    }
     fun client(capability: Capability) = CommandClient(this, capability)
     private suspend fun consume(queue: Channel<Work>) { for (work in queue) {
         if (!work.result.isActive) continue
@@ -92,7 +96,38 @@ class App(plugins: List<Plugin> = emptyList(), workers: Int = 4, capacity: Int =
     val commands = CommandService(context, workers, capacity)
     val cmd get() = commands
     private val installed = mutableListOf<Plugin>()
-    private var status = 0
-    @Synchronized fun start() { check(status == 0); status = 1; try { plugins.forEach { installed.add(it); it.install(context, commands) }; commands.start() } catch (e: Throwable) { close(); throw e } }
-    @Synchronized override fun close() { if (status == 2) return; status = 2; platform.close(); lifecycle.close(); commands.close(); scope.cancel(); installed.asReversed().forEach { runCatching { it.close() } }; installed.clear() }
+    private enum class Status { NEW, STARTING, RUNNING, CLOSING, CLOSED }
+    private var status = Status.NEW
+    // App startup and shutdown are owner-thread operations; reentrant close during
+    // installation is rejected so partial installation cannot escape rollback.
+    @Synchronized fun start() {
+        check(status == Status.NEW)
+        status = Status.STARTING
+        try {
+            plugins.forEach { installed.add(it); it.install(context, commands) }
+            commands.start()
+            status = Status.RUNNING
+        } catch (e: Throwable) {
+            shutdown()
+            throw e
+        }
+    }
+    @Synchronized override fun close() {
+        check(status != Status.STARTING) { "Cannot close during plugin installation" }
+        shutdown()
+    }
+    private fun shutdown() {
+        if (status == Status.CLOSING || status == Status.CLOSED) return
+        status = Status.CLOSING
+        try {
+            platform.close()
+            lifecycle.close()
+            commands.close()
+            scope.cancel()
+        } finally {
+            installed.asReversed().forEach { runCatching { it.close() }.onFailure { log.write(LogLevel.ERROR, "plugin.close.failed") } }
+            installed.clear()
+            status = Status.CLOSED
+        }
+    }
 }
