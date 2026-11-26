@@ -11,23 +11,27 @@ data class SavedStateLimits(
     init { require(maxEntryBytes > 0 && maxEntryBytes <= maxScopeBytes && maxScopeBytes <= maxTotalBytes && maxKeyBytes > 0 && maxEntries > 0 && maxDepth in 1..32) }
 }
 
-/** Native owner supplies one aggregate snapshot. All operations are owner-thread confined. */
+/** Native owner supplies one aggregate snapshot. Platform registration and disposal follow the native owner's thread rules. */
 interface SavedStatePlatform {
     fun consume(key: String): Map<String, Any>?
     fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable
 }
 
-/** Transient, bounded state. No disk I/O or background workers. */
+/** Transient, bounded state. Thread-safe data access; native owner creates and closes the root. No background workers. */
 class SavedState private constructor(
-    private val store: Store, private val prefix: String
+    private val store: Store, private val prefix: String, private val parent: SavedState? = null
 ) : AutoCloseable {
     constructor(platform: SavedStatePlatform, limits: SavedStateLimits = SavedStateLimits(),
         key: String = "appbase.savedState", warning: (String) -> Unit = {}) :
         this(Store(platform, limits, key, warning), "")
 
     private class Store(platform: SavedStatePlatform, val limits: SavedStateLimits, key: String, val warning: (String) -> Unit) {
+        val lock = Any()
         val values = linkedMapOf<String, Any>()
-        val providers = linkedMapOf<String, () -> Any>()
+        val providers = linkedMapOf<String, Provider>()
+        class Provider(val read: () -> Any)
+        val providerSizes = linkedMapOf<String, Long>()
+        var saving = false
         var closed = false
         fun warn(code: String) { runCatching { warning(code) } }
         fun copy(value: Any, depth: Int = 0): Any {
@@ -101,18 +105,51 @@ class SavedState private constructor(
                 scopes.all { scope -> n + other.filterKeys { if (scope.isEmpty()) '/' !in it else it.startsWith(scope) }.entries.sumOf { bytes(it.key, it.value) } <= limits.maxScopeBytes }
         }
         fun snapshot(): Map<String, Any> {
-            val result = LinkedHashMap(values)
-            for ((key, provider) in providers.toList()) {
-                val value = runCatching { provider() }.getOrNull()
-                if (value != null && valid(key, value, result)) result[key] = copy(value)
-                else { result.remove(key); warn("savedstate.provider.rejected") }
+            val captured = synchronized(lock) {
+                if (closed || saving) return emptyMap()
+                saving = true
+                providers.toList()
             }
-            return result
+            try {
+                val computed = captured.map { (key, provider) ->
+                    Triple(key, provider, runCatching {
+                        val value = provider.read()
+                        bytes(key, value)
+                        copy(value).also { bytes(key, it) }
+                    }.getOrNull())
+                }
+                val warnings = mutableListOf<String>()
+                val result = synchronized(lock) {
+                    if (closed) return emptyMap()
+                    val output = LinkedHashMap(values)
+                    for ((key, provider, value) in computed) {
+                        if (providers[key] !== provider) continue
+                        if (value != null && valid(key, value, output)) {
+                            output[key] = value
+                            providerSizes[key] = bytes(key, value)
+                        } else {
+                            output.remove(key)
+                            providerSizes.remove(key)
+                            warnings.add("savedstate.provider.rejected")
+                        }
+                    }
+                    output.mapValues { copy(it.value) }
+                }
+                warnings.forEach { warn(it) }
+                return result
+            } finally {
+                synchronized(lock) { saving = false }
+            }
         }
         init {
             runCatching { platform.consume(key) }.onFailure { warn("savedstate.restore.failed") }.getOrNull()?.forEach { (k, v) ->
-                if (k.toByteArray().size <= limits.maxKeyBytes && valid(k, v, values)) values[k] = copy(v)
-                else warn("savedstate.restore.rejected")
+                val restored = runCatching {
+                    require(k.length <= limits.maxKeyBytes && k.toByteArray().size <= limits.maxKeyBytes &&
+                        k.split('/').all { it.isNotBlank() })
+                    require(valid(k, v, values))
+                    copy(v).also { require(valid(k, it, values)) }
+                }.getOrNull()
+                if (restored != null) values[k] = restored else warn("savedstate.restore.rejected")
             }
         }
         val registration = platform.register(key) { snapshot() }
@@ -120,50 +157,83 @@ class SavedState private constructor(
 
     val limits get() = store.limits
     private var closed = false
-    private fun checkOpen() { check(!closed && !store.closed) }
+    private fun isOpen(): Boolean = !closed && !store.closed && (parent?.isOpen() ?: true)
+    private fun checkOpen() { check(isOpen()) }
     private fun full(key: String): String {
         checkOpen()
-        require(key.isNotBlank() && '/' !in key)
+        require(key.isNotBlank() && '/' !in key && key.length <= limits.maxKeyBytes)
         return (prefix + key).also { require(it.toByteArray().size <= limits.maxKeyBytes) }
     }
-    fun scope(name: String): SavedState = SavedState(store, full(name) + "/")
-    fun get(key: String): Any? = store.values[full(key)]?.let { store.copy(it) }
-    fun contains(key: String): Boolean = full(key).let { it in store.values || it in store.providers }
-    fun set(key: String, value: Any): Boolean {
-        val k = full(key)
-        if (k in store.providers || !store.valid(k, value, store.values) ||
-            (k !in store.values && (store.values.keys + store.providers.keys).size >= limits.maxEntries)) {
-            store.warn("savedstate.set.rejected"); return false
-        }
-        store.values[k] = store.copy(value)
-        return true
+    fun scope(name: String): SavedState = synchronized(store.lock) {
+        SavedState(store, full(name) + "/", this)
     }
-    fun remove(key: String): Boolean {
+    fun get(key: String): Any? = synchronized(store.lock) {
+        store.values[full(key)]?.let { store.copy(it) }
+    }
+    fun contains(key: String): Boolean = synchronized(store.lock) {
+        full(key).let { it in store.values || it in store.providers }
+    }
+    fun set(key: String, value: Any): Boolean {
+        val k = synchronized(store.lock) { full(key) }
+        // Caller-owned collections are inspected outside the shared lock.
+        val owned = runCatching {
+            store.bytes(k, value)
+            store.copy(value).also { store.bytes(k, it) }
+        }.getOrNull()
+        val accepted = synchronized(store.lock) {
+            checkOpen()
+            if (owned == null || k in store.providers || !store.valid(k, owned, store.values) ||
+                (k !in store.values && (store.values.keys + store.providers.keys).size >= limits.maxEntries)) false
+            else { store.values[k] = owned; true }
+        }
+        if (!accepted) store.warn("savedstate.set.rejected")
+        return accepted
+    }
+    fun remove(key: String): Boolean = synchronized(store.lock) {
         val k = full(key)
         val provider = store.providers.remove(k)
         val value = store.values.remove(k)
-        return provider != null || value != null
+        store.providerSizes.remove(k)
+        provider != null || value != null
     }
-    fun clear() {
-        checkOpen()
+    private fun clearLocked() {
         store.values.keys.removeAll { it.startsWith(prefix) }
         store.providers.keys.removeAll { it.startsWith(prefix) }
+        store.providerSizes.keys.removeAll { it.startsWith(prefix) }
     }
+    fun clear() = synchronized(store.lock) { checkOpen(); clearLocked() }
     fun register(key: String, provider: () -> Any): AutoCloseable {
-        val k = full(key)
-        require(k !in store.providers)
-        require(k in store.values || (store.values.keys + store.providers.keys).size < limits.maxEntries)
-        store.providers[k] = provider
-        return AutoCloseable { if (store.providers[k] === provider) store.providers.remove(k) }
+        val entry = Store.Provider(provider)
+        val k = synchronized(store.lock) {
+            val name = full(key)
+            require(name !in store.providers)
+            require(name in store.values || (store.values.keys + store.providers.keys).size < limits.maxEntries)
+            store.providers[name] = entry
+            name
+        }
+        return AutoCloseable {
+            synchronized(store.lock) {
+                if (store.providers[k] === entry) {
+                    store.providers.remove(k)
+                    store.providerSizes.remove(k)
+                }
+            }
+        }
     }
-    fun size(): Long {
+    /** Estimated bytes of static values and last accepted provider snapshots. */
+    fun size(): Long = synchronized(store.lock) {
         checkOpen()
-        return store.values.filterKeys { it.startsWith(prefix) }.entries.sumOf { store.bytes(it.key, it.value) }
+        store.values.filterKeys { it.startsWith(prefix) && it !in store.providerSizes }
+            .entries.sumOf { store.bytes(it.key, it.value) } +
+            store.providerSizes.filterKeys { it.startsWith(prefix) }.values.sum()
     }
     override fun close() {
-        if (closed || store.closed) return
-        clear()
-        closed = true
-        if (prefix.isEmpty()) { store.closed = true; store.registration.close() }
+        val dispose = synchronized(store.lock) {
+            if (!isOpen()) return
+            clearLocked()
+            closed = true
+            if (prefix.isEmpty()) { store.closed = true; true } else false
+        }
+        if (dispose) store.registration.close()
     }
 }
