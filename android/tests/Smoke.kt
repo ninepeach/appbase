@@ -25,10 +25,14 @@ fun main() = runBlocking {
         check(runCatching { client.execute(Slow) }.exceptionOrNull() is TimeoutCancellationException)
         val event = async(start = CoroutineStart.UNDISPATCHED) { host.context.events.observe(Ping::class).first() }; host.context.events.emit(Ping); check(event.await() == Ping)
         val task = launch { client.execute(Slow) }; delay(10); task.cancelAndJoin(); check(task.isCancelled)
-        val nav = Navigation(mapOf("home" to Layer.SCREEN, "detail" to Layer.SCREEN, "dialog" to Layer.MODAL), "home")
-        val detail = nav.open("detail"); val dialog = nav.open("dialog")
-        check(nav.back()); check(nav.stack.value.none { it.instance == dialog }); check(nav.close(detail)); check(!nav.back())
-        check(runCatching { nav.open("missing") }.isFailure)
+        val nav = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE), UIRoute("dialog", UILayer.MODAL)), mapOf("home" to "home"))
+        try {
+            val detail = nav.openPage("detail")
+            val dialog = nav.openModal("dialog")
+            check(nav.back()); check(!nav.isAlive(dialog)); check(!nav.close(dialog))
+            check(nav.close(detail)); check(!nav.back())
+            check(runCatching { nav.openPage("missing") }.isFailure)
+        } finally { nav.close() }
         val lifecycle = host.lifecycle
         lifecycle.transition(AppPhase.FOREGROUND)
         val firstScope = checkNotNull(lifecycle.foregroundScope())
@@ -37,10 +41,12 @@ fun main() = runBlocking {
         lifecycle.transition(AppPhase.FOREGROUND)
         check(lifecycle.foregroundScope() !== firstScope)
         repeat(1000) { lifecycle.transition(AppPhase.BACKGROUND); lifecycle.transition(AppPhase.FOREGROUND) }
-        val bounded = Navigation(mapOf("home" to Layer.SCREEN, "detail" to Layer.SCREEN), "home", 2)
-        bounded.push("detail")
-        check(runCatching { bounded.push("detail") }.isFailure)
-        check(bounded.pop() && !bounded.pop())
+        val bounded = UIManager(listOf(UIRoute("home", UILayer.PAGE), UIRoute("detail", UILayer.PAGE)), mapOf("home" to "home"), capacity = 2)
+        try {
+            bounded.openPage("detail")
+            check(runCatching { bounded.openPage("detail") }.isFailure)
+            check(bounded.back() && !bounded.back())
+        } finally { bounded.close() }
         val logger = Logger(2)
         repeat(3) { logger.info("test.$it") }
         check(logger.snapshot().map { it.code } == listOf("test.1", "test.2"))
