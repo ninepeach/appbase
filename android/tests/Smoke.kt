@@ -5,6 +5,15 @@ object Add : Command<Int>
 object Slow : Command<Int>
 object Stream : ChannelCommand<Int>
 object Ping : AppEvent
+class MemorySavedStatePlatform : SavedStatePlatform {
+    var provider: (() -> Map<String, Any>)? = null
+    override fun consume(key: String): Map<String, Any>? = null
+    override fun register(key: String, provider: () -> Map<String, Any>): AutoCloseable {
+        check(this.provider == null)
+        this.provider = provider
+        return AutoCloseable { this.provider = null }
+    }
+}
 fun main() = runBlocking {
     val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val childLifecycle = AppLifecycle(parent)
@@ -90,6 +99,20 @@ fun main() = runBlocking {
         check(host.platform.dispatch(wake) == WakeResult.DUPLICATE && calls == 1)
         check(host.platform.dispatch(wake.copy(id = "2", expiresAtMs = 0)) == WakeResult.EXPIRED)
         check(host.platform.dispatch(wake.copy(id = "3", route = "unknown")) == WakeResult.UNKNOWN_ROUTE)
+        val savedPlatform = MemorySavedStatePlatform()
+        val saved = SavedState(savedPlatform)
+        try {
+            check(saved.set("value", 42) && saved.get("value") == 42)
+            val child = saved.scope("screen")
+            check(child.set("name", "detail"))
+            val registration = child.register("count") { 3 }
+            val snapshot = checkNotNull(savedPlatform.provider).invoke()
+            check(snapshot["value"] == 42 && snapshot["screen/name"] == "detail" && snapshot["screen/count"] == 3)
+            registration.close()
+            child.close()
+        } finally { saved.close() }
+        check(savedPlatform.provider == null)
+        println("PASS: saved state values, scopes, providers and cleanup")
         println("PASS: bounded logs, crash report redaction, wake routing and deduplication")
         println("PASS: lifecycle transitions, scope cancellation, bounded stack")
         println("PASS: navigation, modal priority, root protection")

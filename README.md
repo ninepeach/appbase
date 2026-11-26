@@ -6,12 +6,14 @@ With JDK 17, Gradle 8.11.1 and Android SDK 35:
 ```
 cd android
 gradle :core:build :ui:assembleDebug
-gradle -PwithDemo=true :demo:assembleDebug
+gradle -PwithDemo=true :appbaseTest:assembleDebug
 bash tests/run.sh
 ```
-The demo is opt-in and located in examples/demo/android. Android Studio can import android with withDemo=true in Gradle properties. No wrapper is included.
+The opt-in `appbaseTest` application is located in `examples/appbaseTest/android`. Android Studio can import `android` with `withDemo=true` in Gradle properties. No wrapper is included.
 
-Demo uses only public UIManager and Navigation APIs; all displayed network data and connection toggles are simulated. No VPN or network permissions. The core is inherited from 0.2.0; this release primarily separates the demo and preserves saveable screen state across navigation. Android compilation and device execution are unverified. Activity recreation, full UI lifecycle ownership, middleware and graceful shutdown remain open.
+`appbaseTest` is a minimal verification panel, not a product simulation. It uses existing public APIs to exercise Command, Event, State, Channel, Lifecycle, Diagnostics, SavedState, UIManager, UIHost, and WakeRouter. `Run all tests` performs the non-interactive checks. The Page, Modal, Overlay, and `Save and recreate Activity` controls cover rendering, back handling, and Android saved-state restoration manually. The application has no network or VPN permissions and does not add Core behavior.
+
+The standalone smoke test covers command execution, timeout, cancellation, capability checks, event delivery, state updates, channel collection, lifecycle scopes, diagnostics, saved state, UIManager navigation, and wake routing. UIHost and AndroidSavedState require the Android application because they depend on native Android owners.
 
 ## v0.4.0-alpha.1
 Adds a JVM lifecycle state and cancellable foreground scope, bounded navigation and explicit push/pop. Android platform lifecycle binding and the remaining hardening work are not implemented. JVM smoke tests pass; Android build and device tests are pending.

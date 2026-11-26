@@ -1,14 +1,23 @@
-# Appbase 0.3.0
-Native application microframework. Android core and UI are independent of examples. iOS is reserved, not implemented.
+# Appbase Android
+
+The Android workspace contains the Core library, the optional UI library, and the opt-in `appbaseTest` verification application.
 
 ## Build
 With JDK 17, Gradle 8.11.1 and Android SDK 35:
 ```
 cd android
 gradle :core:build :ui:assembleDebug
-gradle -PwithDemo=true :demo:assembleDebug
+gradle -PwithDemo=true :appbaseTest:assembleDebug
 bash tests/run.sh
 ```
-The demo is opt-in and located in examples/demo/android. Android Studio can import android with withDemo=true in Gradle properties. No wrapper is included.
+The test application source is in `examples/appbaseTest/android`. Android Studio can import the `android` workspace with `withDemo=true` in Gradle properties. No wrapper is included.
 
-Demo uses only public UIManager and Navigation APIs; all displayed network data and connection toggles are simulated. No VPN or network permissions. The core is inherited from 0.2.0; this release primarily separates the demo and preserves saveable screen state across navigation. Android compilation and device execution are unverified. Activity recreation, full UI lifecycle ownership, middleware and graceful shutdown remain open.
+## appbaseTest
+
+The previous Shadowrocket-style product demo has been removed. `appbaseTest` is intentionally small and contains only:
+
+- `Run all tests` for Command, Event, State, Channel, Lifecycle, Diagnostics, SavedState, UIManager, UIHost, and WakeRouter.
+- Page, Modal, and Overlay buttons for manual UIManager and UIHost checks.
+- `Save and recreate Activity` for AndroidSavedState and navigation restoration.
+
+The application uses only existing Core public APIs. It has no network or VPN permissions and does not extend Core.

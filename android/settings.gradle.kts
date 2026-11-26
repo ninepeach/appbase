@@ -3,6 +3,6 @@ dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_P
 rootProject.name = "Appbase"
 include(":core", ":ui")
 if (providers.gradleProperty("withDemo").orNull == "true") {
-    include(":demo")
-    project(":demo").projectDir = file("../examples/demo/android")
+    include(":appbaseTest")
+    project(":appbaseTest").projectDir = file("../examples/appbaseTest/android")
 }
