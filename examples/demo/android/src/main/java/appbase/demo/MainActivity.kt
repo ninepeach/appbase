@@ -5,6 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +77,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     val logs = remember { mutableStateListOf("Demo initialized") }
     val options = remember { mutableStateMapOf<String,Boolean>() }
     val queue = remember { PresentationQueue() }
+    DisposableEffect(queue) { onDispose { queue.clear() } }
     fun confirm(title:String, action:()->Unit) { queue.enqueue(ModalRequest(title,title,"This changes the current demo session only.",action=action)) }
     val snackbar = remember { SnackbarHostState() }
     var notice by remember { mutableStateOf("") }
@@ -100,7 +104,9 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                             if(page=="Config") TextButton(onClick={configEdit="";open("Configuration editor")}) { Text("+ Add") }
                         }
                         holder.SaveableStateProvider("$tab:${stack.last().instance}") {
-                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                            val opacity = remember { Animatable(0f) }
+                            LaunchedEffect(Unit) { opacity.animateTo(1f, tween(160)) }
+                            Column(Modifier.fillMaxSize().graphicsLayer { alpha = opacity.value }.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                                 when(page) {
                                     "Home" -> {
                                         Group {
@@ -172,7 +178,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                         Text("All traffic values are simulated.",style=MaterialTheme.typography.bodySmall)
                                     }
                                     "Traffic" -> { Text("Session traffic · mock"); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text("Day ${i+1}",Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
-                                    "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else Text("No active connections") }
+                                    "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,"No active connections") {} }
                                     "Logs" -> {
                                         var filter by rememberSaveable { mutableStateOf("") }
                                         OutlinedTextField(filter,{filter=it},label={Text("Filter logs")},modifier=Modifier.fillMaxWidth())
