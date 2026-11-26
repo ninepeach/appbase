@@ -18,9 +18,13 @@ data class UIInstance(val id: String, val route: UIRoute, val tab: String,
 data class UIPrompt(val id: String, val route: String, val tab: String, val owner: String,
     val key: String, val priority: Int, val expiresAt: Long, val arguments: Map<String, String>)
 
+/**
+ * Immutable view for renderers. [blocker] is the single blocking presentation that owns input
+ * and back handling; renderers must use it instead of recomputing layer priority.
+ */
 data class UISnapshot(val tab: String, val instances: List<UIInstance>,
     val visible: Set<String>, val interactive: String?, val foreground: Boolean,
-    val prompts: List<UIPrompt>)
+    val prompts: List<UIPrompt>, val blocker: String? = null)
 
 sealed interface UIResult {
     data class Completed(val values: Map<String, String>) : UIResult
@@ -29,6 +33,7 @@ sealed interface UIResult {
 
 class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val capacity: Int = 128, private val queueCapacity: Int = 32,
+    private val toastCapacity: Int = 3,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     dispatcher: CoroutineDispatcher = Dispatchers.Default) : AutoCloseable {
     private val definitions = routes.associateBy { it.name }
@@ -47,7 +52,7 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private var foreground = true
     private var closed = false
     init {
-        require(roots.isNotEmpty() && capacity >= roots.size && queueCapacity > 0)
+        require(roots.isNotEmpty() && capacity >= roots.size && queueCapacity > 0 && toastCapacity > 0)
         require(definitions.size == routes.size)
         roots.forEach { (tab, route) ->
             val item = add(route, tab, null, emptyMap(), UILayer.PAGE)
@@ -57,12 +62,17 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private val mutableState = MutableStateFlow(snapshot())
     val state = mutableState.asStateFlow()
 
+    /** Programming errors (unknown route, wrong layer, oversized arguments) throw. */
+    private fun validate(route: String, layer: UILayer, args: Map<String, String>) {
+        val definition = requireNotNull(definitions[route]) { "Unknown route $route" }
+        require(definition.layer == layer) { "Route $route is not a $layer" }
+        require(args.size <= 64 && args.all { it.key.length <= 128 && it.value.length <= 8192 })
+    }
     private fun add(route: String, tab: String, parent: String?, args: Map<String, String>,
         layer: UILayer, id: String = UUID.randomUUID().toString()): UIInstance {
         check(!closed && entries.size < capacity)
+        validate(route, layer, args)
         val definition = definitions.getValue(route)
-        require(definition.layer == layer)
-        require(args.size <= 64 && args.all { it.key.length <= 128 && it.value.length <= 8192 })
         val item = UIInstance(id, definition, tab, parent, Collections.unmodifiableMap(LinkedHashMap(args)))
         entries[id] = item
         jobs[id] = SupervisorJob(rootJob)
@@ -89,9 +99,17 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         val active = page()
         val layers = presentations().sortedBy { it.route.layer.ordinal }
         val visible = (listOf(active) + layers).map { it.id }.toSet()
-        val input = blockingPresentation() ?: active
-        return UISnapshot(selected, Collections.unmodifiableList(entries.values.toList()), Collections.unmodifiableSet(visible),
-            input.id.takeIf { foreground }, foreground, Collections.unmodifiableList(prompts.toList()))
+        val blocker = blockingPresentation()
+        val input = blocker ?: active
+        return UISnapshot(
+            tab = selected,
+            instances = Collections.unmodifiableList(entries.values.toList()),
+            visible = Collections.unmodifiableSet(visible),
+            interactive = input.id.takeIf { foreground },
+            foreground = foreground,
+            prompts = Collections.unmodifiableList(prompts.toList()),
+            blocker = blocker?.id,
+        )
     }
     private fun publish() { mutableState.value = snapshot() }
 
@@ -183,52 +201,94 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         publish()
         return true
     } }
-    @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String {
-        check(presentations().none { it.route.blocking }) { "Close blocking presentation first" }
+    /**
+     * Opening operations return the new instance ID, or null when the request is rejected at
+     * runtime: manager closed, a blocking presentation is active, or instance capacity is full.
+     * Rejection never throws, so late callbacks cannot crash the app.
+     */
+    private fun hasCapacity() = !closed && entries.size < capacity
+
+    @Synchronized fun openPage(route: String, arguments: Map<String, String> = emptyMap()): String? {
+        validate(route, UILayer.PAGE, arguments)
+        if (!hasCapacity() || blockingPresentation() != null) return null
         val item = add(route, selected, page().id, arguments, UILayer.PAGE)
         publish()
         return item.id
     }
-    @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String {
-        check(!closed)
-        check(presentations().none { it.route.blocking && it.route.layer != UILayer.MODAL }) { "Close blocking presentation first" }
+
+    @Synchronized fun openModal(route: String, arguments: Map<String, String> = emptyMap(), owner: String? = null): String? {
+        validate(route, UILayer.MODAL, arguments)
+        if (!hasCapacity()) return null
+        if (presentations().any { it.route.blocking && it.route.layer != UILayer.MODAL }) return null
         val parent = modal()?.id ?: page().id
         require(owner == null || owner == parent) { "Owner must be the current page or modal" }
         val item = add(route, selected, parent, arguments, UILayer.MODAL)
         publish()
         return item.id
     }
-    @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String {
+
+    @Synchronized fun showOverlay(route: String, arguments: Map<String, String> = emptyMap()): String? {
+        validate(route, UILayer.OVERLAY, arguments)
+        if (!hasCapacity()) return null
         val item = add(route, selected, modal()?.id ?: page().id, arguments, UILayer.OVERLAY)
         publish()
         return item.id
     }
+
     @Synchronized fun notify(message: String): Boolean {
         if (closed || message.isBlank() || message.length > 2048 || notices.value.size >= queueCapacity) return false
         notices.value = Collections.unmodifiableList(notices.value + message)
         return true
     }
+
     @Synchronized fun consumeNotice(message: String) {
         if (notices.value.firstOrNull() == message) notices.value = Collections.unmodifiableList(notices.value.drop(1))
     }
-    @Synchronized fun toast(route: String, arguments: Map<String, String> = emptyMap()): String {
-        val item = add(route, selected, page().id, arguments, UILayer.TOAST)
-        publish()
-        return item.id
+
+    /**
+     * Nonblocking, auto-closing notice owned by the current page. At most [toastCapacity] toasts
+     * live at once; the oldest is closed to admit a new one. Closing the owner page closes it early.
+     */
+    fun toast(route: String, arguments: Map<String, String> = emptyMap(), durationMs: Long = 4_000): String? {
+        require(durationMs in 1..60_000)
+        val id = mutate { retired ->
+            validate(route, UILayer.TOAST, arguments)
+            if (closed) return null
+            val live = entries.values.filter { it.route.layer == UILayer.TOAST }
+            live.take((live.size - toastCapacity + 1).coerceAtLeast(0)).forEach { remove(it.id, UIResult.Cancelled, retired) }
+            if (!hasCapacity()) {
+                if (retired.isNotEmpty()) publish()
+                return null
+            }
+            val item = add(route, selected, page().id, arguments, UILayer.TOAST)
+            publish()
+            item.id
+        }
+        scope(id)?.launch {
+            delay(durationMs)
+            close(id)
+        }
+        return id
     }
-    @Synchronized fun showSystem(route: String, arguments: Map<String, String> = emptyMap()): String {
+
+    @Synchronized fun showSystem(route: String, arguments: Map<String, String> = emptyMap()): String? {
+        validate(route, UILayer.SYSTEM, arguments)
+        if (!hasCapacity()) return null
         val item = add(route, selected, page().id, arguments, UILayer.SYSTEM)
         publish()
         return item.id
     }
+
     @Synchronized fun enqueueModal(route: String, key: String, priority: Int = 0,
         ttlMs: Long = 60_000, arguments: Map<String, String> = emptyMap()): String? {
         check(!closed)
         require(definitions.getValue(route).layer == UILayer.MODAL && key.isNotBlank() && ttlMs in 1..86_400_000)
         require(arguments.size <= 64 && arguments.all { it.key.length <= 128 && it.value.length <= 8192 })
         prune()
-        if (prompts.size >= queueCapacity || prompts.any { it.key == key } || key in activeKeys.values) { publish()
-        return null }
+        if (prompts.size >= queueCapacity || prompts.any { it.key == key } || key in activeKeys.values) {
+            publish()
+            return null
+        }
         val id = UUID.randomUUID().toString()
         prompts.add(UIPrompt(id, route, selected, page().id, key, priority, clock() + ttlMs, Collections.unmodifiableMap(LinkedHashMap(arguments))))
         promote()
@@ -238,14 +298,17 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
     private fun prune() { prompts.removeAll { it.expiresAt <= clock() || it.owner !in entries } }
     private fun promote() {
         prune()
-        if (!foreground || presentations().any { it.route.blocking } || entries.size >= capacity) return
+        if (!foreground || blockingPresentation() != null || entries.size >= capacity) return
         val next = prompts.filter { it.tab == selected && it.owner == page().id }.maxByOrNull { it.priority } ?: return
         prompts.remove(next)
         add(next.route, next.tab, next.owner, next.arguments, UILayer.MODAL, next.id)
         activeKeys[next.id] = next.key
     }
-    @Synchronized fun refresh() { if (!closed) { promote()
-        publish() } }
+    @Synchronized fun refresh() {
+        if (closed) return
+        promote()
+        publish()
+    }
     @Synchronized fun cancelQueuedModal(id: String): Boolean {
         val removed = prompts.removeAll { it.id == id }
         if (removed) publish()
@@ -287,13 +350,14 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
         publish()
         return true
     } }
-    @Synchronized fun selectRoot(tab: String) {
-        check(!closed)
-        require(tab in roots)
-        if (presentations().any { it.route.blocking }) return
+    /** Returns false when closed or while a blocking presentation owns input. */
+    @Synchronized fun selectRoot(tab: String): Boolean {
+        require(tab in roots) { "Unknown tab $tab" }
+        if (closed || blockingPresentation() != null) return false
         selected = tab
         promote()
         publish()
+        return true
     }
     fun popModal(): Boolean { return mutate { retired ->
         if (closed) return false
@@ -334,8 +398,8 @@ class UIManager(routes: Collection<UIRoute>, roots: Map<String, String>,
             closed = true
             entries.keys.toList().asReversed().forEach { if (it in entries) remove(it, UIResult.Cancelled, retired) }
             prompts.clear()
-        notices.value = emptyList()
-        publish()
+            notices.value = emptyList()
+            publish()
             retired.add(Retired(rootJob, null, UIResult.Cancelled))
         }
     }
