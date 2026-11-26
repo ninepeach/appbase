@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -45,7 +46,15 @@ private fun DemoApp() {
 @Composable
 private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    val navs = remember { tabs.map { Navigation(pages.associateWith { Layer.SCREEN }, it) } }
+    val navSaver = Saver<List<Navigation>, ArrayList<String>>(
+        save = { list -> ArrayList(list.map { n -> n.stack.value.joinToString("|") { it.id } }) },
+        restore = { saved -> tabs.mapIndexed { i, root ->
+            Navigation(pages.associateWith { Layer.SCREEN }, root).apply {
+                saved.getOrNull(i)?.split("|")?.drop(1)?.takeWhile { it in pages && it !in listOf("Node editor","Configuration editor") }?.forEach { push(it) }
+            }
+        } }
+    )
+    val navs = rememberSaveable(saver=navSaver) { tabs.map { Navigation(pages.associateWith { Layer.SCREEN }, it) } }
     val nav = navs[tab]
     val stack by nav.stack.collectAsState()
     val page = stack.last().id
@@ -120,7 +129,10 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit) {
                                                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                                     if(batch) Checkbox(n.id in marked,{if(it)marked.add(n.id) else marked.remove(n.id)}) else RadioButton(selected==n.id,{selected=n.id;connected=false})
                                                     Column(Modifier.weight(1f).clickable{selected=n.id;connected=false}.padding(vertical=12.dp)){Text(n.name);Text(n.group+" · "+n.protocol+" · "+n.host,style=MaterialTheme.typography.bodySmall)}
-                                                    TextButton(onClick={editing=n;open("Node editor")}){Text("Edit")}
+                                                    if(batch) {
+                                                        TextButton(onClick={val i=nodes.indexOf(n);if(i>0){nodes.removeAt(i);nodes.add(i-1,n)}}){Text("↑")}
+                                                        TextButton(onClick={val i=nodes.indexOf(n);if(i>=0&&i<nodes.lastIndex){nodes.removeAt(i);nodes.add(i+1,n)}}){Text("↓")}
+                                                    } else TextButton(onClick={editing=n;open("Node editor")}){Text("Edit")}
                                                 }; HorizontalDivider()
                                             }
                                         }
