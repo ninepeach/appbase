@@ -50,3 +50,12 @@ class CrashCapture(private val directory: File, private val logger: Logger) : Au
         installed = null; previous = null
     }
 }
+
+data class Trace(val sequence: Long, val command: String, val phase: String)
+class Inspector(private val capacity: Int = 100) {
+    init { require(capacity in 1..10000) }
+    private val seq = AtomicLong()
+    private val entries = kotlinx.coroutines.flow.MutableStateFlow<List<Trace>>(emptyList())
+    val traces = entries.asStateFlow()
+    @Synchronized internal fun record(id: String, phase: String) { require(id.length in 1..128 && phase.length in 1..64); entries.value = (entries.value + Trace(seq.incrementAndGet(), id, phase)).takeLast(capacity) }
+}
