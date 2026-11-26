@@ -66,8 +66,9 @@ class CommandService(private val context: AppContext, workers: Int = 4, capacity
         coroutineScope {
             val collector = currentCoroutineContext()[Job]!!
             val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+            check(scope.isActive) { "Channel service closed" }
             val guard = scope.launch(start = CoroutineStart.UNDISPATCHED) { try { awaitCancellation() } finally { if (!finished.get()) collector.cancel() } }
-            try { if (!streamSlots.tryAcquire()) throw QueueFull(); try { context.inspector.record(entry.id, "stream.open"); @Suppress("UNCHECKED_CAST") emitAll((entry.run(command) as Flow<T>).flowOn(Dispatchers.Default).buffer(0)) } finally { streamSlots.release(); context.inspector.record(entry.id, "stream.close") } } finally { finished.set(true); guard.cancel(); }
+            try { if (!streamSlots.tryAcquire()) throw QueueFull(); try { context.inspector.record(entry.id, "stream.open"); @Suppress("UNCHECKED_CAST") emitAll((flow { emitAll(entry.run(command) as Flow<T>) }).flowOn(Dispatchers.Default).buffer(0)) } finally { streamSlots.release(); context.inspector.record(entry.id, "stream.close") } } finally { finished.set(true); guard.cancel(); }
         }
     }
     @Synchronized internal fun close() { closed = true; parallel.cancel(); serial.cancel(); scope.cancel() }
