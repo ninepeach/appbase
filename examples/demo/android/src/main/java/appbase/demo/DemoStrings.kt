@@ -114,7 +114,9 @@ private val translations = mapOf(
     "Screen turned off" to listOf("螢幕已關閉", "屏幕已关闭", "画面が消灯"),
     "Device unlocked" to listOf("裝置已解鎖", "设备已解锁", "端末のロックを解除"),
     "Demo initialized" to listOf("示範已初始化", "演示已初始化", "デモを初期化"),
-    "Simulated connection started" to listOf("模擬連線已啟動", "模拟连接已启动", "模擬接続を開始")
+    "Simulated connection started" to listOf("模擬連線已啟動", "模拟连接已启动", "模擬接続を開始"),
+    "Nodes deleted" to listOf("已刪除節點", "已删除节点", "ノードを削除しました"),
+    "Nodes moved to group" to listOf("已移動節點至分組", "已移动节点至分组", "ノードをグループへ移動しました")
 )
 
 internal fun demoLabel(key:String,language:String):String {

@@ -114,18 +114,7 @@ private fun DemoShell(appearance: String, setAppearance: (String) -> Unit, devic
                                         Item(demoLabel("Rules",language)){open("Rules")};Item(demoLabel("Import configuration",language)){open("Import")}
                                     }
                                     "Configuration editor" -> ConfigurationEditor(model,controller,language,::back,::confirm)
-                                    "Data" -> {
-                                        Group { Item(demoLabel("Upload",language),if(connected)"12 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Download",language),if(connected)"86 MB" else "0 MB"){open("Traffic")};Item(demoLabel("Connections",language)){open("Connections")};Item(demoLabel("Logs",language)){open("Logs")} }
-                                        Text(demoLabel("All traffic values are simulated.",language),style=MaterialTheme.typography.bodySmall)
-                                    }
-                                    "Traffic" -> { Text(demoLabel("Session traffic · mock",language)); repeat(7){i->Row(verticalAlignment=Alignment.CenterVertically){Text(demoLabel("Day",language)+" "+(i+1),Modifier.width(64.dp));LinearProgressIndicator(progress={if(connected)(i+1)/8f else 0f},modifier=Modifier.weight(1f))}} }
-                                    "Connections" -> { if(connected) Group{Item("example.org:443","TCP"){notice="Simulated connection"}} else UIContent(ContentStatus.EMPTY,demoLabel("No active connections",language)) {} }
-                                    "Logs" -> {
-                                        var filter by rememberSaveable { mutableStateOf("") }
-                                        OutlinedTextField(filter,{filter=it},label={Text(demoLabel("Filter logs",language))},modifier=Modifier.fillMaxWidth())
-                                        logs.map { demoLabel(it, language) }.filter { it.contains(filter, true) }.forEach { Text(it) }
-                                        TextButton(onClick={confirm("Clear logs?") {logs.clear()}}){Text(demoLabel("Clear",language))}
-                                    }
+                                    "Data", "Traffic", "Connections", "Logs" -> DataScreen(page, language, connected, logs, ::open, { notice = it }, ::confirm)
                                     "Settings" -> {
                                         Group { Item(demoLabel("Appearance",language),demoLabel(appearance,language)){open("Appearance")};Item(demoLabel("Language",language),demoLabel(language,language)){open("Language")};Item("DNS"){open("DNS")};Item(demoLabel("Notifications",language)){open("Notifications")};Item(demoLabel("Privacy",language)){open("Privacy")};Item(demoLabel("Advanced",language)){open("Advanced")} }
                                         Group { Item(demoLabel("Diagnostics",language)){open("Diagnostics")};Item(demoLabel("About",language)){open("About")};Item(demoLabel("Onboarding",language)){open("Onboarding")} }
