@@ -111,19 +111,17 @@ class SavedState private constructor(
                 providers.toList()
             }
             try {
-                val computed = captured.map { (key, provider) ->
-                    Triple(key, provider, runCatching {
-                        val value = provider.read()
-                        bytes(key, value)
-                        copy(value).also { bytes(key, it) }
-                    }.getOrNull())
-                }
                 val warnings = mutableListOf<String>()
-                val result = synchronized(lock) {
-                    if (closed) return emptyMap()
-                    val output = LinkedHashMap(values)
-                    for ((key, provider, value) in computed) {
-                        if (providers[key] !== provider) continue
+                val output = synchronized(lock) { LinkedHashMap(values) }
+                for ((key, provider) in captured) {
+                    val value = runCatching {
+                        val raw = provider.read()
+                        bytes(key, raw)
+                        copy(raw).also { bytes(key, it) }
+                    }.getOrNull()
+                    synchronized(lock) {
+                        if (closed) return emptyMap()
+                        if (providers[key] !== provider) return@synchronized
                         if (value != null && valid(key, value, output)) {
                             output[key] = value
                             providerSizes[key] = bytes(key, value)
@@ -133,7 +131,23 @@ class SavedState private constructor(
                             warnings.add("savedstate.provider.rejected")
                         }
                     }
-                    output.mapValues { copy(it.value) }
+                }
+                val result = synchronized(lock) {
+                    if (closed) return emptyMap()
+                    // Static writes and provider removals may have occurred during callbacks.
+                    val merged = LinkedHashMap(values)
+                    for ((key, provider) in captured) {
+                        if (providers[key] !== provider) continue
+                        val value = output[key]
+                        if (value != null && valid(key, value, merged)) {
+                            merged[key] = value
+                            providerSizes[key] = bytes(key, value)
+                        } else {
+                            merged.remove(key)
+                            providerSizes.remove(key)
+                        }
+                    }
+                    merged.mapValues { copy(it.value) }
                 }
                 warnings.forEach { warn(it) }
                 return result
