@@ -2,7 +2,7 @@ name: Android Core
 on:
   push:
     branches: [main]
-    paths: ['android/**', '.github/workflows/android-core.yml']
+    paths: ['android/**', 'examples/**', '.github/workflows/android-core.yml']
   pull_request:
     paths: ['android/**', 'examples/**', '.github/workflows/android-core.yml']
   workflow_dispatch:

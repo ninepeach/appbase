@@ -633,7 +633,7 @@ interface PersistentInbox {
 
 | 阶段 | 状态 |
 | --- | --- |
-| 0 | **完成**（2026-11-27）。模拟器基线记录于 `specs/baseline.md`：10/10 自动化测试通过，4 项手动 UI 检查全部通过。Gradle wrapper 8.11.1、version catalog（`android/gradle/libs.versions.toml`）、ktlint 12.1.1 和 detekt 1.23.6（均设 ignoreFailures，允许现有违规）、三个模块均开启 explicit API mode 并补全所有 public 修饰符、CI 改为 `./gradlew -PwithDemo=true build`。`./gradlew -PwithDemo=true build` 本地验证通过（BUILD SUCCESSFUL）。 |
+| 0 | **完成**（2026-11-27）。模拟器基线记录于 `specs/baseline.md`：10/10 自动化测试通过，4 项手动 UI 检查全部通过。Gradle wrapper 8.11.1、version catalog（`android/gradle/libs.versions.toml`）、ktlint 12.1.1 和 detekt 1.23.6（均设 ignoreFailures，允许现有违规）、三个模块均开启 explicit API mode 并补全所有 public 修饰符、CI 改为 `./gradlew -PwithDemo=true build`。`./gradlew -PwithDemo=true build` 本地验证通过（BUILD SUCCESSFUL）。提交 `1cbf32b` 的 GitHub Actions 运行 #15 通过（Android build 和 Kotlin smoke 两步均成功）。验收修正（2026-11-27）：`AGENTS.md` 的推送前检查改为 `./gradlew -PwithDemo=true build` 和 `bash tests/run.sh`；CI 的 push 触发路径加入 `examples/**`；`specs/baseline.md` 更正为 UIManager 使用 `synchronized` 加锁（不是 `Mutex`）。修正后 `bash android/tests/run.sh` 本地通过（6/6 PASS，kotlinc 2.2.21）。 |
 | 1 | 未开始 |
 | 2 | 未开始 |
 | 3 | 未开始 |

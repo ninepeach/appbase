@@ -31,7 +31,7 @@ Build from commit `27be8b1` (redesign v3 docs). APK: `appbaseTest-debug.apk`.
 
 - Navigation snapshot saves a flat string map; **page arguments are not saved** (`emptyMap()` on restore). Fixed in phase 4.
 - Lifecycle transitions driven by `Activity.onStart/onStop`; rotating the screen briefly enters BACKGROUND and cancels `foregroundScope`. Fixed in phase 3.
-- UIManager uses `Mutex` + `Dispatchers.Default`; not main-thread confined. Fixed in phase 5.
+- UIManager guards its state with `synchronized` locking (`@Synchronized` methods) and runs timers on `Dispatchers.Default`; not main-thread confined. Fixed in phase 5.
 - All code is in one Android library (`core`); kernel cannot be tested without Android SDK. Fixed in phase 1.
 - Package name is single-level `appbase`. Fixed in phase 1.
 - No explicit API mode; public surface is uncontrolled. Fixed in phase 0 (this commit).

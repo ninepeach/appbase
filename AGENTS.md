@@ -13,12 +13,13 @@ These rules apply to every AI agent and human contributor working in this reposi
 1. Work on one migration phase from `specs/redesign.md` section 9 at a time. Do not start the next phase in the same session unless asked.
 2. Pushing directly to `main` is allowed (no pull requests required), under these conditions:
    - Before pushing, `git fetch` and rebase on the latest `origin/main`; never overwrite other contributors' changes.
-   - The build and all tests must pass locally:
+   - The build and all tests must pass locally (the same commands CI runs):
      ```
      cd android
-     ./gradlew build
+     ./gradlew -PwithDemo=true build
+     bash tests/run.sh
      ```
-     (Until the wrapper exists: `gradle --no-daemon -PwithDemo=true :core:assembleDebug :ui:assembleDebug :appbaseTest:assembleDebug` and `bash tests/run.sh`.)
+     `tests/run.sh` needs `kotlinc` on `PATH`. If it is not installed locally, say so in the report and rely on the CI result; never report it as passed without a run.
    - Never force-push `main`. Never rewrite published history.
    - If CI on `main` turns red after your push, fixing it is your next task.
 3. Commit messages and the final report list each acceptance criterion of the phase and its actual result (passed / failed / not run). Never report a build or test as passing unless you ran it.
